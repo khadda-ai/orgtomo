@@ -11,6 +11,18 @@ user-invocable: false
 - **Functional consultant**: which Salesforce feature area is this (objects, automation, security, UI)? Is there a standard way?
 - **Product owner**: what is the smallest acceptable result? What is explicitly not asked?
 
+## Before anything else: intake
+
+Check the ticket against the system (skill `orgtomo-intake`) and fill the `intake` block. The acceptance criteria you write afterwards rest on names you have confirmed, not on names the ticket happened to use.
+
+## For the human's page
+
+The engine turns your contract into a page a person can read in a minute. Feed it:
+
+- `one_line`: the whole ask in one sentence.
+- `today` and `wanted`: two short paragraphs, plain words.
+- per example: `input` (the exact value or situation), `today` (what happens now), `expected` (what should happen), `covers` (the criteria it shows).
+
 ## 01-understanding.md
 
 1. In one sentence: what is asked.
