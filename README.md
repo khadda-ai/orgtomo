@@ -57,7 +57,7 @@ Stages, gates and contracts are data (`spec/stages.yaml`, `spec/gates.yaml`, `sp
 - Claude Code
 - Node.js 20 or newer
 - Salesforce CLI (`sf`), logged in to each org under an alias
-- Optional: [Obsidian](https://obsidian.md) to browse the vault; a tracker connector (Atlassian by default); the Playwright MCP server for browser steps
+- Optional: [Obsidian](https://obsidian.md) to browse the vault (the control panel shows the org map too); a tracker connector (Atlassian by default); the Playwright MCP server for browser steps
 
 Orgtomo has no runtime dependencies to install. The one third-party library it uses is vendored.
 
@@ -70,17 +70,18 @@ mkdir my-company && cd my-company
 orgtomo setup            # asks for your orgs, deploy tools and allowed test data
 orgtomo doctor --orgs    # checks the CLI, each org, and whether it is really a sandbox
 
-orgtomo brain retrieve uat && orgtomo brain build uat   # build the org map
-orgtomo ui               # review agents, safety and features in the browser
+orgtomo brain sync uat   # build the org map
+orgtomo discover run uat --retrieve   # optional: study how the business uses the org
+orgtomo ui               # review agents, safety and features, browse the org map
 ```
 
-In Claude Code, add the marketplace and install the three plugins once:
+Install the three plugins for this folder only, so that they load here and nowhere else:
 
-```
-/plugin marketplace add khadda-ai/orgtomo
-/plugin install orgtomo@orgtomo
-/plugin install salesforce-development@orgtomo
-/plugin install salesforce-code-quality@orgtomo
+```bash
+claude plugin marketplace add khadda-ai/orgtomo
+claude plugin install orgtomo@orgtomo --scope project
+claude plugin install salesforce-development@orgtomo --scope project
+claude plugin install salesforce-code-quality@orgtomo --scope project
 ```
 
 Then start a session with the Lead and give it a ticket:
@@ -132,7 +133,8 @@ Change them in the files, in the control panel (`orgtomo ui`), or with the slash
 
 Knowledge is kept as Markdown in `vault/`, which opens as an Obsidian vault:
 
-- `orgs/<org>/`: the org map. One generated note per component with what it uses and what uses it, a "what runs on this object" note in save order, and a canvas map.
+- `orgs/<org>/`: the org map. One generated note per component with what it uses and what uses it, a hub page per object, a "what runs on this object" note in save order, and a canvas map.
+- `orgs/<org>/business/`: how the business uses the org (optional). Areas and their objects, one process note per area with a fact behind every statement, and the questions only a person can answer.
 - `tickets/<KEY>/`: every stage output, gate report, evidence and deploy pack.
 - `learning/`: observations and lessons.
 - `meetings/`, `people/`: optional features.
@@ -145,7 +147,7 @@ Knowledge is kept as Markdown in `vault/`, which opens as an Obsidian vault:
 
 ## Status
 
-Version 0.1.0. The engine, guards and gates are covered by an offline test suite that includes a complete ticket and adversarial cases. What has and has not yet been exercised against live orgs and a live Claude Code session is listed plainly in [docs/VERIFICATION.md](docs/VERIFICATION.md). Read it before relying on Orgtomo for real work.
+Version 0.2.0. Every released version keeps its own branch (`release/v0.1.0`, `release/v0.2.0`), so any of them can be installed by name. The engine, guards and gates are covered by an offline test suite that includes a complete ticket and adversarial cases. What has and has not yet been exercised against live orgs and a live Claude Code session is listed plainly in [docs/VERIFICATION.md](docs/VERIFICATION.md). Read it before relying on Orgtomo for real work.
 
 ## Documentation
 

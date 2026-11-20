@@ -32,6 +32,9 @@ export function makeWorkspace({ overrides = {} } = {}) {
   process.env.ORGTOMO_SF_BIN = path.join(HERE, 'fixtures', 'fake-sf.mjs');
   process.env.FAKE_SF_STATE = stateFile;
   process.env.ORGTOMO_WORKSPACE = root;
+  // Tests must not read the developer's own Claude Code or Salesforce CLI state.
+  process.env.ORGTOMO_CLAUDE_HOME = path.join(root, '_home', '.claude');
+  process.env.ORGTOMO_SF_HOME = path.join(root, '_home', '.sf');
   delete process.env.ORGTOMO_NOW;
   const cfgDir = path.join(root, 'orgtomo.config');
   fs.mkdirSync(cfgDir, { recursive: true });
@@ -57,4 +60,12 @@ export const writeOut = (ws, key, name, contract, md) => {
   fs.writeFileSync(path.join(dir, `${name}.json`), JSON.stringify(contract, null, 2));
   fs.writeFileSync(path.join(dir, `${name}.md`), md || `# ${name}\n\nThis file explains the result of the stage for a human reader in enough words to be useful.\n`);
 };
+/** A valid intake block: the ticket checked against the system, proven by one evidence item. */
+export const intakeOf = (ev, extra = {}) => ({
+  restated: { observed: 'Medium priority cases get the reason Auto.', expected: 'Only High priority cases get it.', change_target: 'ApexClass:CaseService' },
+  identifiers: [{ name: 'CaseService', kind: 'ApexClass', orgs: { dev: 'exists' }, proof: [ev] }],
+  key_assumption: { text: 'The reason is set by CaseService and by nothing else.', held: true, proof: [ev] },
+  ...extra,
+});
+export const SELF_REVIEW = { elsewhere: 'Searched the Brain for other writers of Escalation_Reason__c: none besides CaseService.', intent: 'No setting or comment says Medium cases are meant to be escalated.', withdrawn: [] };
 export const cleanup = (ws) => fs.rmSync(ws.root, { recursive: true, force: true });

@@ -26,7 +26,9 @@
   const setCfg = (file, path, value, done) => act({ verb: 'config', file, path, value }, done);
   const when = (iso) => (iso ? iso.slice(0, 16).replace('T', ' ') : '');
   const pill = (text, kind = '') => h('span', { class: `pill ${kind}` }, text);
-  const statusPill = (t) => pill(t.status === 'awaiting_human' ? `waiting: ${t.waiting_for}` : t.status, { done: 'good', escalated: 'bad', awaiting_human: 'warn', hold: 'plain' }[t.status] || '');
+  const statusPill = (t) => pill(t.status === 'awaiting_human' ? `waiting: ${t.waiting_for}` : t.status, { done: 'good', escalated: 'bad', blocked: 'bad', awaiting_human: 'warn', hold: 'plain' }[t.status] || '');
+  const needsYou = (t) => ['awaiting_human', 'escalated', 'blocked'].includes(t.status);
+  const selectOpts = (options, value, onchange, label) => h('select', { 'aria-label': label, onchange: (e) => onchange(e.target.value) }, options.map((o) => h('option', { value: o.value, selected: o.value === value, disabled: o.disabled }, o.label)));
   const table = (heads, rows, empty = 'Nothing here yet.') => (rows.length ? h('table', {}, h('thead', {}, h('tr', {}, heads.map((x) => h('th', {}, x)))), h('tbody', {}, rows.map((r) => h('tr', {}, r.map((c) => h('td', {}, c)))))) : h('p', { class: 'muted' }, empty));
   const head = (title, sub, ...right) => h('div', { class: 'head' }, h('div', {}, h('h1', {}, title), sub && h('p', {}, sub)), h('div', { class: 'row' }, right));
   const card = (title, ...kids) => h('section', { class: 'card' }, title && h('h2', {}, title), kids);
@@ -49,15 +51,38 @@
       question: () => [h('p', {}, 'The Analyst has a blocking question. Open the ticket to read and answer it.'), h('a', { href: `#/ticket/${key}` }, 'Open ticket')],
       not_reproduced: () => [h('p', {}, 'The bug could not be reproduced. Open the ticket to see what was tried and add detail.'), h('a', { href: `#/ticket/${key}` }, 'Open ticket')],
     };
-    const stopped = t.status === 'escalated';
+    const stopped = t.status === 'escalated' || t.status === 'blocked';
+    if (t.status === 'blocked') return h('section', { class: 'card wait stop' }, h('div', { class: 'row' }, h('h2', {}, `${key}  ${t.title || ''}`), statusPill(t)),
+      h('p', {}, 'Something outside the team\u2019s control is broken. Nothing runs until you fix it and resume.'), h('p', {}, h('strong', {}, 'Reason: '), t.blocked_reason || 'not recorded'), h('div', { class: 'row' }, h('a', { href: `#/ticket/${key}` }, 'Open ticket')));
     return h('section', { class: `card wait${stopped ? ' stop' : ''}` }, h('div', { class: 'row' }, h('h2', {}, `${key}  ${t.title || ''}`), statusPill(t)),
       stopped ? [h('p', {}, 'The team stopped after the allowed number of attempts. Read the report, then give a direction.'), h('div', { class: 'row' }, h('a', { href: `#/ticket/${key}` }, 'Read the report'))] : (kinds[t.waiting_for] || (() => []))());
+  };
+
+  // The Analyst's contract as a page: plain words, today against wanted, examples, criteria, questions.
+  const understandingCard = (key, u, page) => {
+    const i = u.intake;
+    const held = i ? { true: ['holds', 'good'], false: ['does not hold', 'bad'] }[String(i.key_assumption.held)] || ['not tested', 'warn'] : null;
+    return card('Understanding',
+      h('p', { class: 'lede' }, u.one_line || u.summary_plain),
+      u.one_line ? h('p', {}, u.summary_plain) : null,
+      u.today || u.wanted ? h('div', { class: 'grid g2' }, h('div', {}, h('h3', {}, 'Today'), h('p', {}, u.today || '')), h('div', {}, h('h3', {}, 'Wanted'), h('p', {}, u.wanted || ''))) : null,
+      h('h3', { style: 'margin-top:14px' }, 'Examples'),
+      table(['Example', 'Input or situation', 'Today', 'Expected'], (u.examples || []).map((e) => [h('strong', {}, e.title), e.input ? h('code', {}, e.input) : `${e.given}; when ${e.when}`, e.today || h('span', { class: 'muted' }, 'not stated'), e.expected || e.then])),
+      h('h3', { style: 'margin-top:14px' }, 'Acceptance criteria'),
+      table(['Id', 'Criterion', 'From'], (u.acceptance_criteria || []).map((a) => [h('strong', {}, a.id), a.text, pill(a.source, a.source === 'ticket' ? 'good' : '')])),
+      i ? [h('h3', { style: 'margin-top:14px' }, 'Checked against the system'),
+        table(['Name in the ticket', 'Kind', 'Where it was checked', 'Proof'], i.identifiers.map((x) => [h('code', {}, x.name), x.kind, Object.entries(x.orgs || {}).map(([o, v]) => h('span', { style: 'margin-right:8px' }, `${o} `, pill(String(v), v === 'exists' ? 'good' : v === 'missing' || v === 'differs' ? 'bad' : ''))), (x.proof || []).join(' ')])),
+        h('p', { style: 'margin-top:8px' }, h('span', { class: 'muted' }, 'It all rests on: '), i.key_assumption.text, ' ', pill(held[0], held[1])),
+        i.size ? h('p', {}, h('span', { class: 'muted' }, 'Records affected: '), h('strong', {}, String(i.size.count)), ` (${i.size.population})`) : null,
+        i.recommendation ? h('p', {}, h('span', { class: 'muted' }, 'Recommendation: '), i.recommendation) : null] : null,
+      (u.open_questions || []).length ? [h('h3', { style: 'margin-top:14px' }, 'Questions'), h('ul', {}, u.open_questions.map((q) => h('li', {}, h('strong', {}, `${q.id} `), q.blocking ? pill('blocking', 'warn') : null, ` ${q.text}`, q.answer ? h('div', { class: 'muted' }, `Answer: ${q.answer}`) : null)))] : null,
+      page ? h('p', { class: 'muted', style: 'margin-top:12px' }, 'The same as one file you can open or send: ', h('code', {}, page)) : null);
   };
 
   const views = {
     overview() {
       const open = S.tickets.filter((t) => t.status !== 'done');
-      const waiting = open.filter((t) => t.status === 'awaiting_human' || t.status === 'escalated');
+      const waiting = open.filter(needsYou);
       const base = S.brain.find((b) => b.org === S.pipeline.brain_base) || {};
       return [head('Overview', `${S.company || ''}: build in ${S.pipeline.build_org}, then ${S.pipeline.targets.map((x) => x.org).join(' → ') || 'no targets'}`),
         h('div', { class: 'grid g4' },
@@ -73,18 +98,20 @@
       const d = await api(`/api/ticket/${encodeURIComponent(key)}`);
       const t = d.ticket;
       const sum = S.tickets.find((x) => x.key === key) || {};
-      const cls = (s) => (t.status === 'escalated' && t.stage === s.id ? 'stop' : t.stage === s.id && t.status !== 'done' ? 'now' : t.stages[s.id]?.status === 'done' || t.status === 'done' ? 'done' : '');
+      const cls = (s) => (['escalated', 'blocked'].includes(t.status) && t.stage === s.id ? 'stop' : t.stage === s.id && t.status !== 'done' ? 'now' : t.stages[s.id]?.status === 'done' || t.status === 'done' ? 'done' : '');
       const note = h('textarea', { placeholder: 'Your answer or direction', 'aria-label': 'Your answer or direction' });
       const actions = [];
       if (t.status === 'awaiting_human' && t.await.kind === 'approval') actions.push(h('button', { class: 'primary', onclick: () => act({ verb: 'approve', key }, 'Approved') }, `Approve ${t.await.stage}`), h('button', { class: 'danger', onclick: () => { const n = ask('Why do you reject it?', true); if (n) act({ verb: 'reject', key, note: n }, 'Rejected'); } }, 'Reject…'));
       if (t.status === 'awaiting_human' && t.await.kind === 'deploy') actions.push(h('button', { class: 'primary', onclick: () => act({ verb: 'deployed', key, org: t.await.org }, 'Recorded') }, `I deployed to ${t.await.org}`));
       if (t.status === 'awaiting_human' && ['question', 'not_reproduced'].includes(t.await.kind)) actions.push(h('div', { class: 'grow' }, note), h('button', { class: 'primary', onclick: () => act({ verb: 'answer', key, note: note.value }, 'Answer recorded') }, 'Send answer'));
       if (t.status === 'escalated') actions.push(h('div', { class: 'grow' }, note), h('button', { class: 'primary', onclick: () => act({ verb: 'resume', key, note: note.value }, 'The team continues from the plan') }, 'Continue with this direction'));
+      if (t.status === 'blocked') actions.push(h('div', { class: 'grow' }, note), h('button', { class: 'primary', onclick: () => act({ verb: 'resume', key, note: note.value }, 'Unblocked. The team continues.') }, 'I fixed it: continue'));
       if (t.status === 'hold') actions.push(h('button', { class: 'primary', onclick: () => act({ verb: 'resume', key }, 'Resumed') }, 'Resume'));
       else if (t.status !== 'done') actions.push(h('button', { onclick: () => act({ verb: 'hold', key }, 'On hold') }, 'Put on hold'));
       return [head(`${key}  ${t.title || ''}`, `${t.type || ''} · path ${t.path} · loops ${t.loops} of ${d.next.loop_max}`, statusPill(sum.key ? sum : { status: t.status, waiting_for: t.await?.kind })),
         h('div', { class: 'stages' }, S.stages.filter((s) => s.id !== 'done').map((s) => h('div', { class: `stage ${cls(s)}` }, h('b', {}, s.id), h('small', {}, `${s.owner}${t.stages[s.id]?.attempts > 1 ? ` · ${t.stages[s.id].attempts} attempts` : ''}`)))),
-        card('What happens now', h('p', {}, d.next.say || ''), t.await?.details ? h('ul', {}, t.await.details.map((x) => h('li', {}, x))) : null, h('div', { class: 'row', style: 'margin-top:12px' }, actions)),
+        card('What happens now', t.status === 'blocked' ? h('div', { class: 'banner bad' }, h('strong', {}, 'Blocked: '), t.await?.reason || '') : null, h('p', {}, d.next.say || ''), t.await?.details ? h('ul', {}, t.await.details.map((x) => h('li', {}, x))) : null, h('div', { class: 'row', style: 'margin-top:12px' }, actions)),
+        d.understanding ? understandingCard(key, d.understanding, d.understanding_page) : null,
         t.handoff ? card('Handoff', table(['Org', 'Tool', 'Status'], t.handoff.targets.map((x) => [x.org, x.tool, pill(x.status, x.status === 'verified' ? 'good' : '')]))) : null,
         card('Gate reports and updates', d.reports.length ? d.reports.map((r) => h('details', {}, h('summary', {}, r.name), h('pre', {}, r.text))) : h('p', { class: 'muted' }, 'No reports yet.')),
         card(`Evidence (${d.evidence.length})`, table(['Id', 'Kind', 'Org', 'By', 'When', 'What'], d.evidence.map((e) => [h('code', {}, e.id), e.kind, e.org || '', e.actor, h('span', { class: 'nowrap muted' }, when(e.at)), h('span', {}, e.ok ? '' : pill('failed', 'bad'), ' ', e.summary)]))),
@@ -97,12 +124,16 @@
 
     agents() {
       const roles = { lead: 'Delegates, verifies, reports', analyst: 'Understanding, criteria, examples', reproducer: 'Data-proof reproduction', planner: 'Design and test plan', builder: 'Implements in the build org', tester: 'Tests and retests', reviewer: 'Independent final review', cartographer: 'Org Brain keeper', baseline: 'Backups and before-state', scribe: 'Drafts messages', coach: 'Lessons from evidence', notetaker: 'Meeting notes' };
+      const known = S.model_options;
+      const modelSelect = (name, a) => selectOpts(known.some((o) => o.value === a.model) ? known : [...known, { value: a.model, label: `${a.model} (typed by hand)` }], a.model, (v) => setCfg('agents', `agents.${name}.model`, v, `${name}: ${v}`), `${name} model`);
+      // Effort levels come from the chosen model: a level the model does not offer is shown but cannot be picked.
+      const effortSelect = (name, a) => { const ok = (known.find((o) => o.value === a.model) || {}).efforts || S.efforts; return selectOpts(S.efforts.map((e) => ({ value: e, label: ok.includes(e) ? e : `${e} (not on this model)`, disabled: !ok.includes(e) && e !== a.effort })), a.effort, (v) => setCfg('agents', `agents.${name}.effort`, v, `${name}: ${v}`), `${name} effort`); };
       return [head('Agents', 'Model and effort per agent. Changes apply from the next Claude Code session.'),
-        S.agent_rules.reviewer_differs_from_builder ? null : h('div', { class: 'banner warn' }, 'The rule “Reviewer differs from Builder” is off.'),
-        card(null, table(['Agent', 'Does', 'Model', 'Effort', 'On'], Object.entries(S.agents).map(([name, a]) => [h('strong', {}, name), h('span', { class: 'muted' }, roles[name] || ''),
-          select([...new Set([...S.models, a.model])], a.model, (v) => setCfg('agents', `agents.${name}.model`, v, `${name}: ${v}`), `${name} model`),
-          select(S.efforts, a.effort, (v) => setCfg('agents', `agents.${name}.effort`, v, `${name}: ${v}`), `${name} effort`),
-          sw(a.enabled !== false, (v) => setCfg('agents', `agents.${name}.enabled`, v), a.core, `${name} on`)]))),
+        S.agent_rules.reviewer_differs_from_builder ? null : h('div', { class: 'banner warn' }, 'The rule \u201cReviewer differs from Builder\u201d is off.'),
+        card(null, table(['Agent', 'Does', 'Model', 'Effort', 'On'], Object.entries(S.agents).map(([name, a]) => [h('strong', {}, name), h('span', { class: 'muted' }, roles[name] || ''), modelSelect(name, a), effortSelect(name, a),
+          sw(a.enabled !== false, (v) => setCfg('agents', `agents.${name}.enabled`, v), a.core, `${name} on`)])),
+        h('p', { class: 'muted', style: 'margin-top:10px' }, S.model_catalogue.source === 'api' ? `Model list: read from your account on ${when(S.model_catalogue.at)}.` : `Model list: the one shipped with this release (${S.model_catalogue.at}). An alias such as \u201copus\u201d always means the newest version your Claude Code offers; the version shown next to it is what it meant when this list was made.`),
+        h('div', { class: 'row', style: 'margin-top:8px' }, h('button', { onclick: async () => { toast('Asking your account\u2026'); const r = await act({ verb: 'models-refresh' }, 'Done'); if (r && r.result && !r.result.refreshed) toast(r.result.reason, true); } }, 'Refresh the model list'), h('span', { class: 'muted' }, 'Needs ANTHROPIC_API_KEY in the terminal where the panel was started. You can also type any full model id in agents.yaml.'))),
         toggle('Reviewer runs on a different model from the Builder', 'A second model catches what the first one misses. Recommended on.', S.agent_rules.reviewer_differs_from_builder, (v) => setCfg('agents', 'rules.reviewer_differs_from_builder', v))];
     },
 
@@ -126,7 +157,9 @@
             h('div', { class: 'field' }, h('label', {}, 'Loops before the team stops (hard cap 3)'), select(['0', '1', '2', '3'], String(S.pipeline.loop_max), (v) => setCfg('pipeline', 'loop.max', Number(v)), 'Loop limit')),
             h('p', { class: 'muted', style: 'margin-top:8px' }, `Approval after: ${S.pipeline.approvals.join(', ')}`))),
         h('div', { class: 'grid g2' }, listEditor('Allowed test e-mail addresses', 'you+*@example.com', S.safety.allowed_emails || [], 'allowed_emails'), listEditor('Allowed test phone numbers', '+15555550100', S.safety.allowed_phones || [], 'allowed_phones')),
-        toggle('Mask sandbox reads', 'Sandboxes often hold copies of real customer data. Keep this on unless your sandbox data is synthetic.', S.safety.mask_sandbox_reads, (v) => setCfg('safety', 'mask.mask_sandbox_reads', v))];
+        toggle('Mask sandbox reads', 'Sandboxes often hold copies of real customer data. Keep this on unless your sandbox data is synthetic.', S.safety.mask_sandbox_reads, (v) => setCfg('safety', 'mask.mask_sandbox_reads', v)),
+        toggle('Allow broken variants of the test addresses', 'For tickets about address validation: a dot in front, a dot at the end or two dots in a row, on an address from the list above. Such addresses cannot receive mail.', S.safety.allowed_email_shapes, (v) => setCfg('safety', 'allowed_email_shapes', v)),
+        S.safety.browser_provider === 'none' ? null : toggle('Sign the agent browser in automatically', 'The engine opens sandbox pages through a one-time link made from the Salesforce CLI login, so agents need no password or passkey. Off: you sign in to the agent browser yourself. Sandboxes only.', S.safety.browser_login === 'frontdoor', (v) => setCfg('safety', 'browser.login', v ? 'frontdoor' : 'manual'))];
     },
 
     features() {
@@ -146,9 +179,58 @@
     },
 
     brain() {
-      return [head('Org Brain', 'The map of each org, generated from metadata. Open the vault folder in Obsidian to browse it.'),
+      const built = S.brain.filter((b) => b.exists);
+      const out = h('div', {});
+      const orgSel = select(built.map((b) => b.org), (built.find((b) => b.org === S.pipeline.build_org) || built[0] || {}).org, () => {}, 'Org');
+      const box = h('input', { type: 'text', placeholder: 'API name, label or object, for example Case or Escalation_Reason__c', 'aria-label': 'Search the Org Brain' });
+      const show = (...kids) => out.replaceChildren(...kids.flat(Infinity).filter(Boolean));
+      const refLink = (ref) => h('a', { href: '#', onclick: (e) => { e.preventDefault(); component(ref); } }, ref);
+      const component = async (ref) => {
+        try {
+          const c = await api(`/api/brain/component?org=${encodeURIComponent(orgSel.value)}&ref=${encodeURIComponent(ref)}`);
+          show(card(c.ref, h('div', { class: 'row' }, pill(c.type), c.object ? h('a', { href: '#', onclick: (e) => { e.preventDefault(); object(c.object); } }, `object ${c.object}`) : null, pill(c.fresh ? 'matches the source' : 'out of date', c.fresh ? 'good' : 'warn')),
+            table(['Fact', 'Value'], Object.entries(c.facts || {}).map(([k, v]) => [k.replace(/_/g, ' '), typeof v === 'object' ? (Array.isArray(v) ? v.join(', ') : Object.entries(v).map(([x, y]) => `${x} ${y}`).join(', ')) : String(v)]), 'No facts parsed for this type.'),
+            h('h3', { style: 'margin-top:14px' }, `Uses (${c.deps.length})`), c.deps.length ? h('ul', {}, c.deps.map((d) => h('li', {}, refLink(d)))) : h('p', { class: 'muted' }, 'Nothing found by static analysis.'),
+            h('h3', { style: 'margin-top:14px' }, `Used by (${c.used_by.length}): what a change here can touch`), c.used_by.length ? h('ul', {}, c.used_by.map((d) => h('li', {}, refLink(d)))) : h('p', { class: 'muted' }, 'Nothing found by static analysis.'),
+            h('p', { class: 'muted', style: 'margin-top:10px' }, 'Source: ', h('code', {}, c.path))));
+        } catch (e) { toast(e.message, true); }
+      };
+      const object = async (name) => {
+        try {
+          const o = await api(`/api/brain/object?org=${encodeURIComponent(orgSel.value)}&name=${encodeURIComponent(name)}`);
+          show(card(`${o.object}: everything about this object`, table(['What', 'Count'], Object.entries(o.counts).sort().map(([t, n]) => [t, n])),
+            Object.entries(o.components).filter(([t]) => t !== 'CustomField' && t !== 'ListView').map(([t, list]) => [h('h3', { style: 'margin-top:14px' }, `${t} (${list.length})`), h('ul', {}, list.slice(0, 60).map((c) => h('li', {}, refLink(c.ref), c.status ? ` ${c.status}` : '', c.active ? ` active: ${c.active}` : '', c.trigger_type ? ` ${c.trigger_type}` : '')))]),
+            h('h3', { style: 'margin-top:14px' }, `Tests that touch it (${o.tests.length})`), o.tests.length ? h('p', {}, o.tests.slice(0, 80).join(', ')) : h('p', { class: 'muted' }, 'None found.'),
+            h('h3', { style: 'margin-top:14px' }, 'Tickets that touched it'), o.tickets.length ? h('p', {}, o.tickets.map((k) => h('a', { href: `#/ticket/${k}`, style: 'margin-right:8px' }, k))) : h('p', { class: 'muted' }, 'None yet.')));
+        } catch (e) { toast(e.message, true); }
+      };
+      const run = async () => {
+        if (!box.value.trim()) return;
+        try {
+          const hits = await api(`/api/brain/search?org=${encodeURIComponent(orgSel.value)}&q=${encodeURIComponent(box.value)}`);
+          show(card(`${hits.length} match(es)`, table(['Component', 'Object', 'Why it matched'], hits.map((x) => [refLink(x.ref), x.object ? h('a', { href: '#', onclick: (e) => { e.preventDefault(); object(x.object); } }, x.object) : '', x.why.join(', ')]), 'Nothing matches these words.')));
+        } catch (e) { toast(e.message, true); }
+      };
+      box.addEventListener('keydown', (e) => { if (e.key === 'Enter') run(); });
+      return [head('Org Brain', 'The map of each org, generated from metadata. Search it here, or open the vault folder in Obsidian.'),
         card(null, table(['Org', 'Status', 'Components', 'Built', 'Out of date'], S.brain.map((b) => [h('strong', {}, b.org), b.exists ? pill('built', b.stale.length ? 'warn' : 'good') : pill('not built', 'plain'), b.components ?? '', when(b.built_at), b.exists ? b.stale.length : '']))),
-        card('Build or refresh', h('p', {}, 'In Claude Code: ', h('code', {}, `/orgtomo:brain build ${S.pipeline.brain_base}`), '   or in a terminal:'), h('pre', { style: 'margin-top:10px' }, `orgtomo brain retrieve ${S.pipeline.brain_base}\norgtomo brain build ${S.pipeline.brain_base}`))];
+        built.length ? card('Look something up', h('div', { class: 'row' }, h('div', { style: 'width:140px' }, orgSel), h('div', { class: 'grow' }, box), h('button', { class: 'primary', onclick: run }, 'Search')), h('p', { class: 'muted', style: 'margin-top:8px' }, 'Click a result to see what it uses and what uses it. Click an object to see everything on it.')) : null,
+        out,
+        card('Build or refresh', h('p', {}, 'In Claude Code: ', h('code', {}, `/orgtomo:brain sync ${S.pipeline.brain_base}`), '   or in a terminal:'), h('pre', { style: 'margin-top:10px' }, `orgtomo brain sync ${S.pipeline.brain_base}`)),
+        card('Obsidian (optional)', h('p', {}, S.obsidian.installed ? (S.obsidian.vault_opened_before ? 'Obsidian is installed and this vault has been opened in it.' : 'Obsidian is installed. Open it, choose \u201cOpen folder as vault\u201d and pick the vault folder.') : 'Obsidian is not installed. Everything on this page works without it.'), h('ul', {}, S.obsidian.gives.map((x) => h('li', {}, x))), S.obsidian.installed ? null : h('pre', { style: 'margin-top:10px' }, 'orgtomo obsidian install'))];
+    },
+
+    business() {
+      const done = S.discover.filter((d) => d.built_at);
+      if (!done.length) return [head('Business', 'How the company uses each org.'), card('Not studied yet', h('p', {}, 'Orgtomo can study one org end to end: it groups the objects into areas, describes what runs on them, and writes down the questions only you can answer. It reads metadata and record totals, never record values.'), h('pre', { style: 'margin-top:10px' }, `orgtomo discover run ${S.pipeline.brain_base} --retrieve`))];
+      return [head('Business', 'What exists is generated. How it works is written by the Cartographer, one area at a time. What only you know is asked here.'),
+        done.map((d) => [
+          card(`${d.org}: areas`, table(['Area', 'Objects', 'Process note', 'Statements'], d.domains.map((x) => [h('strong', {}, x.name), x.objects, pill(x.note_status === 'missing' ? 'not written' : x.note_status, x.note_status === 'checked' ? 'good' : x.note_status === 'draft' ? 'warn' : 'plain'), x.statements ? `${x.statements.linked} linked to a fact, ${x.statements.marked} marked inferred or open` : ''])),
+            h('p', { class: 'muted', style: 'margin-top:10px' }, 'To have the next process note written, type in Claude Code: ', h('code', {}, `/orgtomo:discover ${d.org}`))),
+          card(`${d.org}: questions for you (${d.questions.filter((q) => q.status === 'open').length} open)`, d.questions.map((q) => {
+            const box = h('input', { type: 'text', value: q.answer || '', placeholder: 'Your answer', 'aria-label': `Answer to ${q.id}` });
+            return h('div', { class: 'card toggle', style: 'margin-top:10px' }, h('div', { class: 'grow' }, h('h3', {}, `${q.id}  ${q.text}`), h('p', { class: 'muted' }, `Asked because: ${q.why}`), h('div', { class: 'row', style: 'margin-top:8px' }, h('div', { class: 'grow' }, box), h('button', { class: q.status === 'answered' ? '' : 'primary', onclick: () => act({ verb: 'discover-answer', org: d.org, id: q.id, note: box.value }, 'Answer saved') }, q.status === 'answered' ? 'Change' : 'Save'))));
+          }))])];
     },
 
     learning() {
@@ -189,11 +271,11 @@
 
   // ---------------------------------------------------------------- shell
 
-  const NAV = [['overview', 'Overview'], ['agents', 'Agents'], ['safety', 'Safety'], ['features', 'Features'], ['brain', 'Org Brain'], ['learning', 'Learning'], ['people', 'People'], ['meetings', 'Meetings'], ['health', 'Health']];
+  const NAV = [['overview', 'Overview'], ['agents', 'Agents'], ['safety', 'Safety'], ['features', 'Features'], ['brain', 'Org Brain'], ['business', 'Business'], ['learning', 'Learning'], ['people', 'People'], ['meetings', 'Meetings'], ['health', 'Health']];
   async function render() {
     const [, section = 'overview', arg] = location.hash.split('/');
     const view = views[section] ? section : 'overview';
-    const counts = { overview: S.tickets.filter((t) => t.status === 'awaiting_human' || t.status === 'escalated').length, learning: S.lessons.filter((l) => l.status === 'proposed').length, people: S.people.proposals.length, meetings: S.meetings.pending.length };
+    const counts = { overview: S.tickets.filter(needsYou).length, business: S.discover.reduce((n, d) => n + (d.questions || []).filter((q) => q.status === 'open').length, 0), learning: S.lessons.filter((l) => l.status === 'proposed').length, people: S.people.proposals.length, meetings: S.meetings.pending.length };
     document.getElementById('nav').replaceChildren(...NAV.map(([id, label]) => h('a', { href: `#/${id}`, class: id === view || (view === 'ticket' && id === 'overview') ? 'on' : '', 'aria-current': id === view ? 'page' : null }, label, counts[id] ? h('span', { class: 'count' }, counts[id]) : null)));
     document.getElementById('company').textContent = S.company || '';
     document.getElementById('foot').textContent = `Build: ${S.pipeline.build_org} · Brain: ${S.pipeline.brain_base}`;

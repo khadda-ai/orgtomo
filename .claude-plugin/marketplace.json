@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "Orgtomo and the Salesforce plugins it builds on. forcedotcom/sf-skills changes often; the two Salesforce plugins are pinned to one commit so that agent behaviour changes only when a maintainer moves the pin (see sf-skills.lock).",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "plugins": [
     {

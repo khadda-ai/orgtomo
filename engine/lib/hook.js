@@ -10,22 +10,24 @@
 //
 // Guards fail closed: if this code throws while judging a tool call, the call
 // is denied.
+import fs from 'node:fs';
 import path from 'node:path';
 import { findWorkspace, layout } from './paths.js';
 import { loadConfig, validateConfig, setConfigValue, org as getOrg, isProduction, EFFORTS } from './config.js';
 import { checkBash } from './guards/policy.js';
 import { checkWrite } from './guards/write.js';
-import { checkMcp, checkWebFetch } from './guards/mcp.js';
-import { scanText, describeFindings } from './guards/data.js';
+import { checkMcp, checkWebFetch, orgForHost } from './guards/mcp.js';
+import { scanNew, describeFindings } from './guards/data.js';
 import { analyze, base } from './shell.js';
 import { human, listTickets, loadTicket, next, stagesOf, activeStages, summary } from './ticket.js';
 import { setLessonStatus, proposeLessons, observe } from './learning.js';
 import { setPerson, confirmProposal, removePerson } from './people.js';
 import { confirmLink, plan as meetingPlan } from './meetings.js';
 import { recordCanary } from './canary.js';
-import { restore } from './org.js';
+import { restore, browserLoginUrl } from './org.js';
+import { answerQuestion } from './discover.js';
 import { sync } from './sync.js';
-import { readJson, writeJson, readJsonl, appendLine, nowIso, now, OrgtomoError } from './util.js';
+import { exists, readText, readJson, writeJson, readJsonl, appendLine, nowIso, now, OrgtomoError } from './util.js';
 
 const READ_ONLY = new Set(['cat', 'head', 'tail', 'less', 'grep', 'rg', 'ls', 'find', 'wc', 'stat', 'diff', 'jq', 'cd', 'pwd', 'echo', 'sort', 'uniq', 'cut', 'tree', 'file', 'true']);
 const TICKET_RE = /\b[A-Z][A-Z0-9_]*-[0-9]+\b/g;
@@ -61,7 +63,7 @@ export function handle(input) {
   const guardsOff = process.env.ORGTOMO_GUARDS === 'off';
   try {
     switch (event) {
-      case 'SessionStart': return context(event, banner(root, cfg, problems, guardsOff));
+      case 'SessionStart': forgetStaleAgents(root); return context(event, banner(root, cfg, problems, guardsOff));
       case 'UserPromptExpansion': return humanVerb(root, cfg, input, String(input.command_name || '').replace(/^\/?(orgtomo:)?/, ''), String(input.command_args || ''), event);
       case 'UserPromptSubmit': {
         const m = /^\s*\/orgtomo:([a-z-]+)\s*([\s\S]*)$/.exec(String(input.prompt || ''));
@@ -88,11 +90,12 @@ function banner(root, cfg, problems, guardsOff) {
   if (guardsOff) lines.push('NOTE: ORGTOMO_GUARDS=off. Only the production and protected-state rules are active.');
   const tickets = listTickets(root).filter((t) => t.status !== 'done').map(summary);
   lines.push(tickets.length
-    ? `Open tickets:\n${tickets.map((t) => `- ${t.key} "${t.title}": ${t.status}, stage ${t.stage}${t.waiting_for ? `, waiting for ${t.waiting_for}` : ''}, loops ${t.loops}`).join('\n')}`
+    ? `Open tickets:\n${tickets.map((t) => `- ${t.key} "${t.title}": ${t.status}, stage ${t.stage}${t.blocked_reason ? `, BLOCKED: ${t.blocked_reason}` : t.waiting_for ? `, waiting for ${t.waiting_for}` : ''}, loops ${t.loops}`).join('\n')}`
     : 'No open tickets. The human starts one with /orgtomo:ticket <KEY>.');
   const orgs = Object.entries(cfg.orgs.orgs || {}).map(([n, o]) => `${n} (${o.role})`).join(', ');
   lines.push(`Orgs: ${orgs}. Build org: ${cfg.pipeline.build_org}. Production is read-only and masked.`);
   lines.push('Always ask the engine what to do: `orgtomo next <KEY>`. Never decide the order of work yourself. Human actions (/orgtomo:approve, reject, deployed, answer ...) are recorded by the engine when the human types them; you cannot perform them.');
+  lines.push('If a tool, a login or an org is broken, do not retry in a loop and do not work around it: `orgtomo block <KEY> --reason "<exact message and what would fix it>"`, tell the human, and stop.');
   const mp = meetingPlan(root, cfg);
   if (mp.enabled) lines.push(`Meetings are on (${mp.provider}). Before ticket work, have the notetaker bring in meetings since ${mp.since}: \`orgtomo meetings plan\`.`);
   return lines.join('\n\n');
@@ -109,14 +112,15 @@ function oncePerPrompt(root, input, verb, args) {
 }
 
 function soleAwaiting(root, kinds) {
-  const list = listTickets(root).filter((t) => (t.status === 'awaiting_human' && kinds.includes(t.await?.kind)) || (kinds.includes('escalation') && t.status === 'escalated') || (kinds.includes('hold') && t.status === 'hold'));
+  const list = listTickets(root).filter((t) => (t.status === 'awaiting_human' && kinds.includes(t.await?.kind)) || (kinds.includes('escalation') && t.status === 'escalated') || (kinds.includes('hold') && t.status === 'hold') || (kinds.includes('blocked') && t.status === 'blocked'));
   return list.length === 1 ? list[0].key : null;
 }
 
 function humanVerb(root, cfg, input, verb, argText, event) {
-  const HUMAN = ['approve', 'reject', 'hold', 'resume', 'answer', 'deployed', 'feedback', 'lessons', 'models', 'features', 'autonomy', 'people', 'meetings', 'canary', 'ping', 'rule', 'restore'];
+  const HUMAN = ['approve', 'reject', 'hold', 'resume', 'answer', 'deployed', 'feedback', 'lessons', 'models', 'features', 'autonomy', 'people', 'meetings', 'canary', 'ping', 'rule', 'restore', 'discover'];
   if (!HUMAN.includes(verb)) return null;
   const words = argText.trim().split(/\s+/).filter(Boolean);
+  if (verb === 'discover' && words[0] !== 'answer') return null;
   if (verb === 'lessons' && !['approve', 'retire'].includes(words[0])) return null;
   if (verb === 'people' && !['set', 'confirm', 'reject', 'remove'].includes(words[0])) return null;
   if (verb === 'meetings' && !['confirm', 'reject'].includes(words[0])) return null;
@@ -136,7 +140,12 @@ function humanVerb(root, cfg, input, verb, argText, event) {
     case 'reject': result = human.reject(root, cfg, key || soleAwaiting(root, ['approval']) || needKey(), { note: rest(0), source }); break;
     case 'restore': result = restore(root, cfg, { key: key || needKey(), source }); break;
     case 'hold': result = human.hold(root, cfg, key || needKey(), { note: rest(0) }); break;
-    case 'resume': result = human.resume(root, cfg, key || soleAwaiting(root, ['escalation', 'hold']) || needKey(), { note: rest(0), source }); break;
+    case 'resume': result = human.resume(root, cfg, key || soleAwaiting(root, ['escalation', 'hold', 'blocked']) || needKey(), { note: rest(0), source }); break;
+    case 'discover': { // /orgtomo:discover answer <org> <Q id> <answer>
+      const o = getOrg(cfg, words[1] || needArg('org'));
+      result = answerQuestion(root, cfg, o.name, words[2] || needArg('question id'), words.slice(3).join(' '));
+      break;
+    }
     case 'answer': {
       const k = key || soleAwaiting(root, ['question', 'not_reproduced']) || needKey();
       const others = words.filter((_, i) => i !== keyAt);
@@ -223,7 +232,7 @@ function preToolUse(root, cfg, input, { problems, guardsOff }) {
   const tool = input.tool_name;
   const ti = input.tool_input || {};
   const agent = actorOf(input, cfg);
-  const ctx = { cfg, root, agent, guardsOff, stages: stagesOf(root), activeStages: activeStages(root), scratch: input.scratchpad_dir };
+  const ctx = { cfg, root, agent, guardsOff, stages: stagesOf(root), activeStages: activeStages(root), scratch: input.scratchpad_dir, cwd: input.cwd };
   if (problems.length && ['Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Agent', 'Task'].includes(tool) && !guardsOff) {
     if (!(tool === 'Bash' && /^\s*orgtomo\s+(doctor|status|sync)\b/.test(ti.command || ''))) return pre('deny', `Orgtomo configuration is invalid; nothing runs until it is fixed:\n- ${problems.join('\n- ')}`);
   }
@@ -248,14 +257,19 @@ function preToolUse(root, cfg, input, { problems, guardsOff }) {
     if (r.decision === 'deny') return pre('deny', `Orgtomo write guard: ${r.reason}`);
     if (!guardsOff) {
       const text = [ti.content, ti.new_string, ti.new_source, ...(ti.edits || []).map((e) => e.new_string)].filter(Boolean).join('\n');
-      const hits = scanText(text, cfg.safety);
+      // An address that is already in the file being edited is not new data; only new ones are stopped.
+      const abs = path.resolve(root, file);
+      const before = exists(abs) && fs.statSync(abs).isFile() && fs.statSync(abs).size < 2_000_000 ? readText(abs) : '';
+      const hits = scanNew(text, before, cfg.safety);
       if (hits.length) return pre('deny', `Orgtomo data guard: ${describeFindings(hits)}`);
     }
     return null;
   }
   if (tool.startsWith('mcp__')) {
     const r = checkMcp(tool, ti, ctx);
-    return r.decision === 'deny' ? pre('deny', `Orgtomo MCP guard: ${r.reason}`) : null;
+    if (r.decision === 'deny') return pre('deny', `Orgtomo MCP guard: ${r.reason}`);
+    const login = guardsOff ? null : browserSignIn(root, cfg, tool, ti);
+    return login ? pre('allow', 'Orgtomo opened the page through a one-time sign-in link for this sandbox.', { updatedInput: { ...ti, url: login } }) : null;
   }
   if (tool === 'WebFetch' && !guardsOff) {
     const r = checkWebFetch(String(ti.url || ''), cfg);
@@ -263,6 +277,47 @@ function preToolUse(root, cfg, input, { problems, guardsOff }) {
   }
   if ((tool === 'Agent' || tool === 'Task') && !guardsOff) return spawnGate(root, cfg, ti);
   return null;
+}
+
+const sessionsFile = (root) => path.join(layout(root).state, 'browser-sessions.json');
+
+/** Ask for a fresh sign-in the next time the agent browser opens a page of this org. */
+export function requestBrowserSignIn(root, orgName) {
+  const all = readJson(sessionsFile(root), {});
+  all[orgName] = { ...(all[orgName] || {}), pending: true, asked_at: nowIso() };
+  writeJson(sessionsFile(root), all);
+  return all[orgName];
+}
+export const browserSessions = (root) => readJson(sessionsFile(root), {});
+
+/**
+ * Sign the agent browser in without a password or passkey. When the agent
+ * opens a sandbox page and the browser has no recent session there, the page
+ * is opened through a one-time link made from the CLI's own login. The agent
+ * asked for a normal sandbox URL and never chooses the link itself.
+ * @returns {string|null} the URL to open instead, or null to leave the call alone
+ */
+function browserSignIn(root, cfg, tool, ti) {
+  if (cfg.safety.browser?.login !== 'frontdoor' || !/__browser_navigate$/.test(tool) || tool.startsWith('mcp__claude-in-chrome__')) return null;
+  let u;
+  try { u = new URL(ti.url); } catch { return null; }
+  const orgName = orgForHost(cfg, u.hostname);
+  if (!orgName) return null;
+  const all = readJson(sessionsFile(root), {});
+  const s = all[orgName];
+  const maxAge = Number(cfg.safety.browser?.session_minutes ?? 60) * 60_000;
+  if (s && !s.pending && s.at && now() - new Date(s.at) < maxAge) return null;
+  try {
+    const target = `${u.pathname}${u.search}`;
+    const url = browserLoginUrl(root, cfg, orgName, target === '/' ? '' : target);
+    all[orgName] = { at: nowIso(), pending: false };
+    writeJson(sessionsFile(root), all);
+    return url;
+  } catch (e) {
+    all[orgName] = { ...(s || {}), pending: true, last_error: String(e.message || e).slice(0, 300), error_at: nowIso() };
+    writeJson(sessionsFile(root), all);
+    return null;
+  }
 }
 
 /** Stage gate: an agent is spawned only when the engine says it is its turn. */
@@ -288,6 +343,13 @@ function spawnGate(root, cfg, ti) {
 
 const runningFile = (root) => path.join(layout(root).state, 'agents-running.json');
 
+/** Entries left behind by sessions that ended without a clean stop. */
+function forgetStaleAgents(root) {
+  const all = readJson(runningFile(root), {});
+  const keep = Object.fromEntries(Object.entries(all).filter(([, v]) => v?.at && now() - new Date(v.at) < 12 * 3_600_000));
+  if (Object.keys(keep).length !== Object.keys(all).length) writeJson(runningFile(root), keep);
+}
+
 function subagentStart(root, cfg, input) {
   const all = readJson(runningFile(root), {});
   all[input.agent_id || input.agent_type] = { agent: actorOf(input, cfg), at: nowIso() };
@@ -308,7 +370,7 @@ function subagentStop(root, cfg, input) {
     const st = t.stages[t.stage];
     const submitted = st?.submitted_at && st.submitted_at >= started;
     if (!submitted) {
-      return { decision: 'block', reason: `You have not submitted your work for ${t.key}. Write both output files, then run: orgtomo submit ${t.key} ${t.stage}. If something blocks you, write exactly what and why in the .md file and submit anyway; the gates route it to the right place. Never finish without submitting.` };
+      return { decision: 'block', reason: `You have not submitted your work for ${t.key}. Write both output files, then run: orgtomo submit ${t.key} ${t.stage}. If a tool, a login or an org is broken, do not submit a half result: run orgtomo block ${t.key} --reason "<exact message and what would fix it>" and stop. If information is missing, write the open question in your output and submit; the gates route it to the human.` };
     }
     if (st.status === 'gates_failed' && st.attempts < Number(cfg.pipeline.attempts?.max ?? 2)) {
       return { decision: 'block', reason: `Your submission for ${t.key} failed its gates. Read vault/tickets/${t.key}/verify-${t.stage}.md, fix exactly those points, and submit again.` };

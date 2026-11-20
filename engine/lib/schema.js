@@ -71,3 +71,22 @@ export function validate(value, schema, { dir = SCHEMA_DIR, at = '$' } = {}) {
 
 /** Validate against a named contract. */
 export const validateContract = (value, name) => validate(value, loadSchema(name));
+
+/**
+ * A readable outline of a contract: required fields, allowed values and
+ * nesting, so that an agent can write the JSON without guessing field names.
+ */
+export function describeContract(name) {
+  const walk = (s, depth = 0) => {
+    if (s.$ref) return walk(resolveRef(s.$ref, SCHEMA_DIR), depth);
+    if (s.enum) return s.enum.map((e) => JSON.stringify(e)).join(' | ');
+    if (s.type === 'array') return [walk(s.items || {}, depth + 1)];
+    if (s.type === 'object' || s.properties) {
+      const req = new Set(s.required || []);
+      return Object.fromEntries(Object.entries(s.properties || {}).map(([k, v]) => [req.has(k) ? k : `${k} (optional)`, walk(v, depth + 1)]));
+    }
+    return `<${s.type || 'any'}${s.pattern ? ` matching ${s.pattern}` : ''}${s.minLength ? `, at least ${s.minLength} characters` : ''}>`;
+  };
+  const schema = loadSchema(name);
+  return { contract: name, title: schema.title, fields: walk(schema) };
+}

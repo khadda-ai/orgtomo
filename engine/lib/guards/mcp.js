@@ -39,6 +39,18 @@ export function allowedBrowserHosts(cfg) {
   }
   return [...new Set(hosts)];
 }
+/** The configured sandbox a host belongs to, or null. */
+export function orgForHost(cfg, host) {
+  const h = String(host).toLowerCase();
+  for (const name of orgNames(cfg)) {
+    const o = org(cfg, name);
+    if (!o.host || isProduction(o)) continue;
+    const base = String(o.host).replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase();
+    const stem = base.replace(/\.(my\.salesforce\.com|lightning\.force\.com|my\.salesforce-setup\.com|my\.site\.com)$/, '');
+    if (h === base || (stem !== base && [`${stem}.my.salesforce.com`, `${stem}.lightning.force.com`, `${stem}.my.salesforce-setup.com`, `${stem}.my.site.com`].includes(h))) return name;
+  }
+  return null;
+}
 export function productionHosts(cfg) {
   return orgNames(cfg).map((n) => org(cfg, n)).filter((o) => isProduction(o) && o.host)
     .map((o) => String(o.host).replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase().replace(/\.(my\.salesforce\.com|lightning\.force\.com)$/, ''));
@@ -79,8 +91,10 @@ export function checkMcp(tool, input, ctx) {
   const { cfg, agent, root } = ctx;
   const short = tool.split('__').pop();
   // Rules that hold even with guards off: browser fence against production.
-  if (/browser_navigate$/.test(short) && input?.url) {
-    const r = checkBrowserUrl(input.url, cfg);
+  // Both browsers are fenced: Playwright's browser_navigate and the navigate tool of Claude in Chrome.
+  const navigates = /browser_navigate$/.test(short) || (tool.startsWith('mcp__claude-in-chrome__') && short === 'navigate');
+  if (navigates && input?.url && !/^(back|forward)$/i.test(input.url)) {
+    const r = checkBrowserUrl(/^[a-z][a-z0-9+.-]*:/i.test(input.url) ? input.url : `https://${input.url}`, cfg);
     if (r.decision === 'deny') return r;
   }
   if (ctx.guardsOff) return ALLOW;

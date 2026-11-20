@@ -28,7 +28,9 @@ Evidence is created only by the engine when it runs something for you. Each item
 ```
 
 - One fact per claim. If it needs "and", make two claims.
-- The proof must actually show the claim. A query that returned zero rows proves absence only for exactly that filter.
+- The proof must actually show the claim. A query that returned zero rows proves absence only for exactly that filter. A claim that cites an empty result must also cite a query on the same org that returned rows (a control); the evidence gate checks this.
+- You may label a claim: `"basis": "measured"` (you ran it; your own proof), `"carried"` (taken from the ticket or an earlier stage; add `"source"`), or `"inferred"` (reasoned from metadata; add `"confirm_by"`). Never present a carried or inferred claim as measured.
+- An official-documentation quote the engine cannot find on the page is recorded as unconfirmed. It still counts as a citation, and the human is shown the link at the next approval. Quote the exact sentence so that they can find it.
 - Browser captures support a claim; they do not replace a query when the fact is data.
 - Failed evidence (a failed deploy, a failing test) may be cited only for a claim that says it failed.
 - Query results are masked. Masked values (`j***@c***.com`) are expected; do not try to unmask them.

@@ -4,7 +4,7 @@
 # denied to every agent.
 mcp_servers:
   atlassian:  { type: http, url: "https://mcp.atlassian.com/v2/mcp" }
-  playwright: { command: npx, args: ["@playwright/mcp@latest"] }   # sync adds the profile, output dir and allowed origins
+  playwright: { command: npx, args: ["@playwright/mcp@0.0.86"] }   # pinned on purpose; sync adds the profile, the output folder and blocks the production origins
   granola:    { type: http, url: "https://mcp.granola.ai/mcp", when: "meetings.provider == granola" }
 
 capabilities:
@@ -70,7 +70,7 @@ grants:
   builder:      { tools: [Read, Grep, Glob, Bash, Write, Edit], capabilities: [code.intel, flow.generate, docs.official] }
   tester:       { tools: [Read, Grep, Glob, Bash, Write, Edit], capabilities: [browser.ui, code.intel] }
   reviewer:     { tools: [Read, Grep, Glob, Bash, Write, Edit], capabilities: [docs.official, code.intel] }
-  cartographer: { tools: [Read, Grep, Glob, Bash, Write, Edit], capabilities: [code.intel] }
+  cartographer: { tools: [Read, Grep, Glob, Bash, Write, Edit], capabilities: [code.intel] }   # also writes the process notes of a business discovery
   baseline:     { tools: [Read, Grep, Glob, Bash, Write],       capabilities: [] }
   scribe:       { tools: [Read, Grep, Glob, Bash, Write],       capabilities: [] }
   coach:        { tools: [Read, Grep, Glob, Bash, Write],       capabilities: [] }

@@ -25,6 +25,17 @@ export function maskRecords(records, safety) {
   return (records || []).map(one);
 }
 
+/**
+ * Redact addresses and numbers inside every string of a result, whatever the
+ * field is called. Used for Tooling API rows, where field names say nothing.
+ */
+export function redactDeep(value, safety) {
+  if (typeof value === 'string') return scanText(value, safety).length ? redactInside(value, safety) : value;
+  if (Array.isArray(value)) return value.map((v) => redactDeep(v, safety));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).filter(([k]) => k !== 'attributes').map(([k, v]) => [k, redactDeep(v, safety)]));
+  return value;
+}
+
 /** Replace every disallowed address or number inside a longer text. */
 export function redactInside(text, safety) {
   let out = String(text);

@@ -45,12 +45,15 @@ flowchart TB
 | Block | Where | Job |
 |---|---|---|
 | Runner | `engine/lib/ticket.js` | Ticket state, `next`, `submit`, Lead verification, loops, escalation, handoff, human actions |
-| Gates | `engine/lib/gates.js` | Twenty-three checks that read contracts, evidence, source files and the Brain index |
+| Gates | `engine/lib/gates.js` | Twenty-five checks that read contracts, evidence, source files and the Brain index |
 | Evidence | `engine/lib/evidence.js` | Append-only ledger per ticket |
 | Org access | `engine/lib/org.js` | Query (masked), retrieve, backup, deploy, Apex, tests, canary, parity, sandbox check |
 | Guards | `engine/lib/guards/` | Shell policy, write guard, data guard, MCP guard |
 | Hook entry | `engine/lib/hook.js` | One handler for all hook events |
-| Org Brain | `engine/lib/brain.js` | Parse source, write fact notes, index, canvas, drift, context packs |
+| Org Brain | `engine/lib/brain.js` | Parse source, write fact notes, hub pages, index, canvas, drift, context packs |
+| Discovery | `engine/lib/discover.js` | Areas, area pages and questions from the Brain; checks the Cartographer's process notes |
+| Pages | `engine/lib/pages.js` | Builds the human-readable page of a stage from its contract |
+| Models | `engine/lib/models.js` | Model catalogue: aliases, versions, effort levels per model |
 | Knowledge | `learning.js`, `people.js`, `meetings.js` | Observations and lessons, reader profiles, meeting notes |
 | Deploy packs | `engine/lib/deploypack.js` | Package, instructions per tool, checklist |
 | Sync | `engine/lib/sync.js` | Generates `.claude/agents`, `.claude/skills`, `.claude/settings.json`, `.mcp.json` |
@@ -82,16 +85,17 @@ Claude Code ignores `hooks`, `mcpServers` and `permissionMode` on agents that sh
 | A gate needs the human (blocking question, bug not reproduced) | Ticket waits for `/orgtomo:answer`; not counted as a mistake |
 | Output is valid and says "tests failed" or "changes needed" | Loop back to plan; after `loop.max` loops (hard cap 3) the ticket stops with `escalation.md` |
 | Lead finds a mismatch | Stage fails; recorded as a mistake of the owning agent |
+| A tool, a login or an org is broken | The ticket is `blocked` with the reason (`orgtomo block`, or the engine after the same command fails twice). Not an attempt, not a mistake; the human resumes it. |
 
 ## Hooks used
 
 | Event | Use |
 |---|---|
-| `SessionStart` | Banner: open tickets, orgs, rules, meetings reminder |
+| `SessionStart` | Banner: open tickets (with the reason when one is blocked), orgs, rules, meetings reminder |
 | `UserPromptExpansion`, `UserPromptSubmit` | Human-only commands are executed here by the engine. Both are handled because either may deliver a slash command; the action is applied once per prompt. |
-| `PreToolUse` | Bash policy, write and data guards, MCP guard, documentation hosts for WebFetch, stage gate on `Agent` |
+| `PreToolUse` | Bash policy (file ownership for shell writes included), write and data guards, MCP guard, sign-in of the agent browser, documentation hosts for WebFetch, stage gate on `Agent` |
 | `SubagentStart`, `SubagentStop` | No agent finishes without submitting |
-| `Stop` | The Lead continues until a human gate (`pipeline.keep_going`) |
+| `Stop` | The Lead continues until a human gate (`pipeline.keep_going`); a blocked ticket does not push it |
 
 ## Workspace layout
 

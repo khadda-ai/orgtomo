@@ -9,10 +9,11 @@ import { spawnSync } from 'node:child_process';
 import { org as getOrg, isProduction, canWriteData, canWriteMetadata, buildOrg } from './config.js';
 import { layout, rel } from './paths.js';
 import { addEvidence, listEvidence } from './evidence.js';
-import { maskRecords, redactInside } from './mask.js';
+import { maskRecords, redactInside, redactDeep } from './mask.js';
 import { scanText, describeFindings } from './guards/data.js';
 import { emailGate, recordCanary } from './canary.js';
-import { exists, readJson, writeJson, readText, writeText, listFiles, sha256File, nowIso, fail, uniq } from './util.js';
+import { exists, readJson, writeJson, readText, writeText, listFiles, sha256File, now, nowIso, fail, uniq, SOURCE_IGNORE } from './util.js';
+import { newFindings } from './backups.js';
 import { refFromPath, parseRef, sourceGlobsFor } from './metadata.js';
 
 /** Run the Salesforce CLI and return its parsed JSON result. */
@@ -29,15 +30,22 @@ export function runSf(args, { cwd } = {}) {
 const verifiedFile = (root) => path.join(layout(root).state, 'orgs-verified.json');
 
 /**
- * Ask the org itself whether it is a sandbox. Stored and reused; a write to an
- * org whose own answer is "not a sandbox" is refused whatever orgs.yaml says.
+ * Ask the org itself whether it is a sandbox. The answer is kept for a limited
+ * time only, and it is tied to the org id: an alias that starts answering with
+ * a different org id (a refreshed sandbox, or a login to another org under the
+ * same alias) stops every write until a human confirms the change.
+ * A write to an org whose own answer is "not a sandbox" is refused whatever orgs.yaml says.
  */
-export function verifyOrg(root, cfg, orgName) {
+export function verifyOrg(root, cfg, orgName, { accept = false } = {}) {
   const o = getOrg(cfg, orgName);
   const r = runSf(['data', 'query', '--target-org', o.alias, '--query', 'SELECT Id, IsSandbox, OrganizationType, InstanceName FROM Organization LIMIT 1']);
-  if (!r.ok) fail(`Could not reach "${orgName}" (${o.alias}): ${r.message}`, 'ORG_UNREACHABLE');
+  if (!r.ok) fail(`Could not reach "${orgName}" (${o.alias}): ${r.message}${/refresh token|inactive|expired|No authorization/i.test(r.message) ? ` Log in again yourself: sf org login web --alias ${o.alias}` : ''}`, 'ORG_UNREACHABLE');
   const rec = r.result?.records?.[0] || {};
   const all = readJson(verifiedFile(root), {});
+  const before = all[orgName];
+  if (before?.org_id && rec.Id && before.org_id !== rec.Id && !accept) {
+    fail(`"${orgName}" (${o.alias}) now answers as org ${rec.Id}; it was ${before.org_id} when it was last checked. The alias points to a different org than before (a refreshed sandbox, or another login). Nothing is written there until a human confirms: orgtomo human org-changed ${orgName}`, 'ORG_CHANGED');
+  }
   all[orgName] = { alias: o.alias, org_id: rec.Id, is_sandbox: rec.IsSandbox === true, type: rec.OrganizationType, checked_at: nowIso() };
   writeJson(verifiedFile(root), all);
   if (!all[orgName].is_sandbox && !isProduction(o)) {
@@ -46,10 +54,16 @@ export function verifyOrg(root, cfg, orgName) {
   return all[orgName];
 }
 export const orgVerified = (root, orgName) => readJson(verifiedFile(root), {})[orgName];
+/** The stored answer, only while it is recent enough to trust (safety.verify_org_max_age_minutes, default 12 hours). */
+export function orgVerifiedFresh(root, cfg, orgName) {
+  const v = orgVerified(root, orgName);
+  const maxAge = Number(cfg.safety.verify_org_max_age_minutes ?? 720) * 60_000;
+  return v && now() - new Date(v.checked_at) <= maxAge ? v : null;
+}
 
 function assertWritable(root, cfg, o, what) {
   if (isProduction(o)) fail(`"${o.name}" is production. Orgtomo never writes ${what} to production.`, 'PRODUCTION');
-  const v = orgVerified(root, o.name) || verifyOrg(root, cfg, o.name);
+  const v = orgVerifiedFresh(root, cfg, o.name) || verifyOrg(root, cfg, o.name);
   if (!v.is_sandbox) fail(`"${o.name}" is not a sandbox according to the org itself. No ${what} is written there.`, 'PRODUCTION');
 }
 
@@ -64,9 +78,11 @@ export function query(root, cfg, { org: orgName, soql, key, tooling = false, act
   const r = runSf(args);
   if (!r.ok) fail(`Query failed on "${orgName}": ${r.message}`, 'SF_ERROR');
   const mask = isProduction(o) || cfg.safety.mask?.mask_sandbox_reads !== false;
-  const records = mask && !tooling ? maskRecords(r.result.records, cfg.safety) : (r.result.records || []).map(({ attributes, ...rest }) => rest);
-  const out = { org: orgName, total: r.result.totalSize, masked: mask && !tooling, records };
-  if (key) out.evidence = addEvidence(root, key, { kind: 'soql', org: orgName, actor, command: q, summary: `${out.total} row(s) from ${orgName}`, payload: out, meta: { tooling } }).id;
+  // Tooling rows describe metadata, so field names say nothing about what a value is: redact by value.
+  const raw = (r.result.records || []).map(({ attributes, ...rest }) => rest);
+  const records = !mask ? raw : tooling ? redactDeep(raw, cfg.safety) : maskRecords(r.result.records, cfg.safety);
+  const out = { org: orgName, total: r.result.totalSize, masked: mask, records };
+  if (key) out.evidence = addEvidence(root, key, { kind: 'soql', org: orgName, actor, command: q, summary: `${out.total} row(s) from ${orgName}`, payload: out, meta: { tooling, total: Number(out.total) || 0 } }).id;
   return out;
 }
 
@@ -77,15 +93,35 @@ export function info(root, cfg, orgName) {
   return { name: orgName, alias: o.alias, role: o.role, is_sandbox: v.is_sandbox, type: v.type, org_id: v.org_id, host: o.host || null };
 }
 
-/** Retrieve metadata (read-only) into a folder. refs: ["ApexClass:Foo", ...] */
+/** Folder inside the sfdx project where a retrieve lands first. */
+export const RETRIEVE_STAGING = '.orgtomo-tmp';
+
+/**
+ * Retrieve metadata (read-only) into a folder. refs: ["ApexClass:Foo", ...]
+ *
+ * The Salesforce CLI refuses an output folder outside the sfdx project and
+ * one inside a package directory. So the retrieve goes to a staging folder at
+ * the project root, and the files are then copied to where they are wanted.
+ */
 export function retrieve(root, cfg, { org: orgName, refs, outDir, key, actor, kind = 'retrieve' }) {
   const o = getOrg(cfg, orgName);
   if (!refs?.length) fail('Nothing to retrieve.');
-  fs.mkdirSync(outDir, { recursive: true });
-  const args = ['project', 'retrieve', 'start', '--target-org', o.alias, '--output-dir', outDir];
-  for (const ref of refs) args.push('--metadata', ref);
   const projectDir = sfdxProjectDir(root, cfg);
-  const r = runSf(args, { cwd: projectDir });
+  const stagingRoot = path.join(projectDir, RETRIEVE_STAGING);
+  const staging = path.join(stagingRoot, `${now().getTime()}-${process.pid}`);
+  fs.mkdirSync(staging, { recursive: true });
+  let r;
+  try {
+    // The folder is given relative to the project, never as an absolute path: when the workspace sits behind a
+    // symbolic link, the CLI sees its own real path and would judge an absolute path to be outside the project.
+    const args = ['project', 'retrieve', 'start', '--target-org', o.alias, '--output-dir', path.relative(projectDir, staging)];
+    for (const ref of refs) args.push('--metadata', ref);
+    r = runSf(args, { cwd: projectDir });
+    if (r.ok) { fs.mkdirSync(outDir, { recursive: true }); fs.cpSync(staging, outDir, { recursive: true }); }
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true });
+    if (exists(stagingRoot) && !fs.readdirSync(stagingRoot).length) fs.rmdirSync(stagingRoot);
+  }
   if (!r.ok) fail(`Retrieve from "${orgName}" failed: ${r.message}`, 'SF_ERROR');
   const files = listFiles(outDir).map((f) => ({ file: f, sha256: sha256File(path.join(outDir, f)) }));
   const found = uniq(files.map((f) => refFromPath(f.file)).filter(Boolean));
@@ -136,7 +172,8 @@ export function deploy(root, cfg, { key, paths, checkOnly = false, tests = [], a
   const backedUp = new Set(listEvidence(root, key).filter((e) => e.kind === 'backup').flatMap((e) => e.meta.refs || []));
   const missing = refs.filter((r) => !backedUp.has(r));
   if (missing.length) fail(`Backup first. No backup recorded for: ${missing.join(', ')}. Run: orgtomo org backup ${key} ${missing.map((m) => `"${m}"`).join(' ')}`, 'NO_BACKUP');
-  const dataHits = files.flatMap((f) => scanText(readText(path.join(root, f)), cfg.safety));
+  // Addresses that were already in the backed-up version are the product's own text; only new ones stop the deploy.
+  const dataHits = files.flatMap((f) => newFindings(root, cfg, key, path.join(root, f)));
   if (dataHits.length) fail(`Data guard: ${describeFindings(dataHits)}`, 'DATA_GUARD');
 
   const args = ['project', 'deploy', 'start', '--target-org', o.alias, '--wait', '30'];
@@ -208,6 +245,33 @@ export function canary(root, cfg, orgName) {
   return { org: orgName, ...recordCanary(root, orgName, status, 'probe', status === 'unknown' ? (r.message || 'no canary marker in the log').slice(0, 300) : '') };
 }
 
+/**
+ * A one-time login link for a sandbox, made from the CLI's own session.
+ * Only the engine calls this, and only for the browser guard: the link is a
+ * live credential for about a minute, so it is never printed, stored or
+ * recorded as evidence. Production never gets one.
+ */
+export function browserLoginUrl(root, cfg, orgName, startPath = '') {
+  const o = getOrg(cfg, orgName);
+  if (isProduction(o)) fail('Orgtomo never opens production in the agent browser.', 'PRODUCTION');
+  const args = ['org', 'open', '--target-org', o.alias, '--url-only'];
+  if (startPath) args.push('--path', startPath);
+  const r = runSf(args);
+  const url = r.result?.url;
+  if (!r.ok || !url) fail(`Could not get a login link for "${orgName}": ${r.message || 'the CLI returned no URL'}`, 'SF_ERROR');
+  return url;
+}
+
+/** Approximate record counts per object (the numbers Setup shows under Storage Usage). No record is read. */
+export function recordCounts(root, cfg, orgName, objects = []) {
+  const o = getOrg(cfg, orgName);
+  const args = ['org', 'list', 'sobject', 'record-counts', '--target-org', o.alias];
+  for (const name of objects) args.push('--sobject', name);
+  const r = runSf(args);
+  if (!r.ok) fail(`Could not read record counts from "${orgName}": ${r.message}`, 'SF_ERROR');
+  return Object.fromEntries((Array.isArray(r.result) ? r.result : []).map((x) => [x.name, Number(x.count) || 0]));
+}
+
 /** Compare components in a target org with the built source. Read-only. */
 export function parity(root, cfg, { key, org: orgName, components, actor }) {
   const o = getOrg(cfg, orgName);
@@ -231,8 +295,16 @@ export function parity(root, cfg, { key, org: orgName, components, actor }) {
     rows.push({ ref: c.ref, status: diffs.length ? 'different' : 'same', note: diffs.join('; ') || undefined, name });
   }
   const ok = rows.every((x) => x.status === 'same' || x.status === 'check_manually');
-  const ev = addEvidence(root, key, { kind: 'parity', org: orgName, actor, ok, command: `parity ${orgName}`, summary: ok ? `${orgName} matches the build for ${rows.length} component(s)` : `${orgName} differs from the build`, payload: { rows } });
-  return { ok, org: orgName, rows, evidence: ev.id };
+  // A retrieve returns the newest version of a flow, which is not always the one that runs. Ask which one is active.
+  const warnings = [];
+  for (const c of live.filter((x) => parseRef(x.ref).type === 'Flow' && /^[A-Za-z0-9_]+$/.test(parseRef(x.ref).name))) {
+    const { name } = parseRef(c.ref);
+    const q = runSf(['data', 'query', '--target-org', o.alias, '--use-tooling-api', '--query', `SELECT Definition.DeveloperName, VersionNumber, Status FROM Flow WHERE Definition.DeveloperName = '${name}' ORDER BY VersionNumber DESC LIMIT 1`]);
+    const newest = q.ok ? q.result?.records?.[0] : null;
+    if (newest?.Status && newest.Status !== 'Active') warnings.push(`Flow ${name}: the newest version in ${orgName} (v${newest.VersionNumber}) is ${newest.Status}, not Active. The change does not run there until that version is activated.`);
+  }
+  const ev = addEvidence(root, key, { kind: 'parity', org: orgName, actor, ok, command: `parity ${orgName}`, summary: ok ? `${orgName} matches the build for ${rows.length} component(s)${warnings.length ? `; ${warnings.length} flow(s) not active` : ''}` : `${orgName} differs from the build`, payload: { rows, warnings } });
+  return { ok, org: orgName, rows, warnings, evidence: ev.id };
 }
 
 /**
@@ -245,7 +317,7 @@ export function restore(root, cfg, { key, source = 'terminal' }) {
   const bdir = path.join(layout(root).ticketDir(key), 'backup', o.name);
   if (!exists(bdir)) fail(`Ticket ${key} has no backup for ${o.name}.`, 'NO_BACKUP');
   const srcRoot = path.join(root, cfg.pipeline.source_dir || 'source', o.name);
-  const srcFiles = listFiles(srcRoot, { ignore: ['node_modules', '.git', '.sf', '.sfdx'] });
+  const srcFiles = listFiles(srcRoot, { ignore: SOURCE_IGNORE });
   const restored = [];
   const unplaced = [];
   for (const f of listFiles(bdir)) {

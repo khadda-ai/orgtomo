@@ -2,11 +2,11 @@
 
 Orgtomo's own rule is that nothing is claimed without proof. This page applies that rule to Orgtomo itself. It is updated with every release.
 
-Version 0.1.0, 2026-11-19.
+Version 0.2.0, 2026-11-21.
 
 ## Verified by the automated test suite (offline)
 
-Run with `npm test`. The suite uses a stand-in Salesforce CLI that keeps each "org" as a folder of metadata and answers with the same JSON shape as the real CLI.
+Run with `npm test`: 54 tests. The suite uses a stand-in Salesforce CLI that keeps each "org" as a folder of metadata and answers with the same JSON shape as the real CLI. Since 0.2.0 the stand-in also applies the real CLI's rules for where a retrieve may write and where a default org may be set, with the real error names, because version 0.1.0 passed its tests while breaking both rules.
 
 | Area | What the tests prove |
 |---|---|
@@ -20,8 +20,27 @@ Run with `npm test`. The suite uses a stand-in Salesforce CLI that keeps each "o
 | Hooks | Protocol output shape, identity injection into engine commands, stage gate on spawns, submit enforcement, human actions recorded once when two events fire for one prompt, production closed with guards off. |
 | Knowledge | Org Brain facts, links, save order, canvas, staleness, drift, context pack; lessons only from recorded observations, auto-apply threshold, merge, recurrence; people profiles; meeting links. |
 | Sync and CLI | Generated agents, skills, settings and MCP file follow the configuration; idempotent; comments in configuration survive edits; human verbs refused to agents. |
+| Blocked status | A reported block and a command failing twice both stop the ticket without counting an attempt; resume continues it. |
+| Retrieve | Staging inside the project, relative output folder, copy out, clean-up; a backup into the ticket folder. |
+| Data guard | Malformed addresses, shape-preserving masks, text already in the backup allowed and new text refused, shell writes held to file ownership, here-document bodies. |
+| Org identity | An alias answering with another org id stops writes until a human confirms; the answer expires. |
+| Discovery | Each object in exactly one area, stable question ids, an unlinked statement in a process note refused. |
+| Models, browser | Alias resolution, effort levels per model, catalogue refresh against a stand-in endpoint; navigation rewritten to a sign-in link for a sandbox and never for production. |
 
-The control panel was exercised in a headless browser: all ten sections render without console errors, an approval and a model change made in the UI reach the engine, and requests without the token or with a foreign Host header are refused.
+The control panel was exercised in a browser: all eleven sections render without script errors on a workspace built from a real sandbox (982 components); the Org Brain search, a component view and an object view work; a business question answered in the panel and a model changed in the panel reach the engine. A request without the token is refused; the test suite also covers a request from a foreign origin.
+
+## Verified against the real Salesforce CLI and a real sandbox (read-only)
+
+Run by hand on 2026-11-20 and 2026-11-21 with a scratch workspace wired to one sandbox. Nothing was written to the org.
+
+| Item | Result |
+|---|---|
+| `orgtomo brain sync` | Retrieve and build completed. |
+| `orgtomo doctor --orgs` | The retrieve probe passed. |
+| `orgtomo org backup` into a ticket folder | Worked; this is the call that failed in 0.1.0. The staging folder was removed afterwards. |
+| `orgtomo discover run --retrieve` | All twenty discovery metadata types retrieved, record totals read, areas and questions written. |
+| Tooling API query for the newest version of a flow | Field names confirmed. |
+| CLI rules the engine depends on | A retrieve output folder outside the project, or inside a package directory, is refused; setting a default org outside a project is refused; `sf org open --url-only` returns a link. |
 
 ## Verified against documentation, not yet against a live session
 
@@ -34,7 +53,9 @@ These rest on vendor documentation read on 2026-11-19, and need one confirming r
 | Agent frontmatter: `tools` with `Agent(...)` and `mcp__server__*`, `skills`, `model`, `effort`, `maxTurns` | Claude Code sub-agents reference | `orgtomo start`, then `/agents` |
 | Plugin `bin/` puts `orgtomo` on PATH for Bash calls | Claude Code plugins reference | An agent runs `orgtomo version` |
 | Marketplace entries pinned by commit (`git-subdir` with `sha`) | Claude Code plugin marketplaces reference | `/plugin install salesforce-development@orgtomo` |
-| Playwright MCP tool names and flags | microsoft/playwright-mcp README | `/mcp` lists the tools; adjust `capabilities.yaml` if names differ |
+| Playwright MCP tool names and flags (`--user-data-dir`, `--extension`, `--blocked-origins`) | The help output of the pinned package version | `/mcp` lists the tools; adjust `capabilities.yaml` if names differ |
+| Plugin install scope (`--scope project`) and uninstall | `claude plugin install --help`, `claude plugin uninstall --help` | `orgtomo doctor` reports the scope |
+| Models endpoint and its fields | Anthropic API reference | `orgtomo models refresh` with your key |
 | Granola MCP endpoint and tool names | Granola documentation | `/mcp` after enabling meetings |
 | Salesforce plugin environment switches (`DO_NOT_TRACK`, `SF_DISABLE_TELEMETRY`, `SF_PLUGIN_SKILLS_FIRST`) | forcedotcom/sf-skills at the pinned commit | Plugin start-up output |
 
@@ -43,6 +64,11 @@ These rest on vendor documentation read on 2026-11-19, and need one confirming r
 | Item | Why it matters | Status |
 |---|---|---|
 | Real Salesforce CLI JSON for deploy failures and test results across CLI versions | The engine reads specific fields; a renamed field would lose detail, not safety | Needs a run against a sandbox |
+| The single-use sign-in link in an org that requires a passkey or another second step | Decides whether browser steps run without a human | Salesforce documents that the link signs in without asking again; whether an org's own login policy adds a step is not verified. Try it once per sandbox. An agent that lands on a login page blocks the ticket. |
+| Playwright started with blocked origins, and attached to a running browser, in a live session | A second line behind the navigation fence | The flags exist in the pinned version; behaviour in a session is not yet observed |
+| `orgtomo models refresh` against the real endpoint | Fills the model list for a workspace | Tested against a stand-in only |
+| `orgtomo obsidian install` | Convenience | The machine used for testing had no package manager; only the "not available" path ran |
+| A full ticket through the new gates with real agents | Quality of intake and self-review in practice | Needs real tickets |
 | E-mail canary (`Messaging.reserveSingleEmailCapacity`) across deliverability settings and editions | Decides whether data may be written in `blocked` mode | A known practitioner technique; if it answers `unknown`, state the setting by hand. An unknown answer blocks writes, never allows them. |
 | Interplay with the Salesforce plugin's own hooks (skills-first enforcement, deploy gate) | Two sets of hooks judge the same calls | Expected to compose (a deny from either side wins); needs observation |
 | Flow generator default-org check (`.sf/config.json`) | Keeps the hosted generator on the build org | The file location is the CLI's documented project config; confirm on your CLI version |

@@ -1,6 +1,6 @@
 {
   "name": "orgtomo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A team of Claude Code agents that takes a Salesforce ticket from understanding to a verified deploy pack, with proof at every step.",
   "type": "module",
   "license": "MIT",
@@ -30,7 +30,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test tests/e2e-ticket.test.mjs tests/flow.test.mjs tests/guards.test.mjs tests/hook.test.mjs tests/knowledge.test.mjs tests/ui.test.mjs",
+    "test": "node --test tests/e2e-ticket.test.mjs tests/flow.test.mjs tests/guards.test.mjs tests/hook.test.mjs tests/knowledge.test.mjs tests/ui.test.mjs tests/v020.test.mjs",
     "check": "node scripts/check.mjs"
   },
   "files": [

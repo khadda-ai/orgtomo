@@ -1,0 +1,21 @@
+{
+  "note": "Model catalogue shipped with this release. 'orgtomo models refresh' replaces it for a workspace with the list your own account can use. An alias is turned into a version by Claude Code when a session starts; the versions named here are what the aliases meant on the Anthropic API when this release was made.",
+  "updated": "2026-11-21",
+  "efforts": ["low", "medium", "high", "xhigh", "max"],
+  "aliases": {
+    "fable": "claude-fable-5-2",
+    "opus": "claude-opus-5-5",
+    "sonnet": "claude-sonnet-5-5",
+    "haiku": "claude-haiku-5-5"
+  },
+  "models": [
+    { "id": "claude-fable-5-2", "name": "Claude Fable 5.2", "efforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "id": "claude-opus-5-5", "name": "Claude Opus 5.5", "efforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "id": "claude-opus-5", "name": "Claude Opus 5", "efforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "id": "claude-opus-4-8", "name": "Claude Opus 4.8", "efforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "id": "claude-sonnet-5-5", "name": "Claude Sonnet 5.5", "efforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "id": "claude-sonnet-5", "name": "Claude Sonnet 5", "efforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "efforts": ["low", "medium", "high", "max"] },
+    { "id": "claude-haiku-5-5", "name": "Claude Haiku 5.5", "efforts": ["low", "medium", "high", "xhigh", "max"] }
+  ]
+}

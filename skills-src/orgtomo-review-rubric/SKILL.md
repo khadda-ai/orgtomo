@@ -22,6 +22,7 @@ Answer every item with `pass`, `fail` or `na`, and proof ids or a precise note. 
 | R9 | No hard-coded ids, URLs or credentials; configuration in metadata? |
 | R10 | Rollback possible from the backup; deploy pack will be complete? |
 | R11 | Were the earlier claims this change depends on re-checked against evidence? |
+| R12 | Was the work challenged before handover: zero results have a control, numbers say what was counted, the same pattern was looked for elsewhere, the rollback is as careful as the change? |
 
 The human may add items in `orgtomo.config/review-rubric.yaml`.
 
