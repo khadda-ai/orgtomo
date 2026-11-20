@@ -43,6 +43,10 @@ Fixes from the first day of real use, a way to study how a business uses its org
 - A failing command prints one line of JSON; a stack trace needs `ORGTOMO_DEBUG=1`.
 - Reading a missing or broken JSON file reports which file, instead of failing with an internal error.
 
+### Fixed
+
+- Three findings of the code scanner: the documentation check now strips script blocks whose end tag carries spaces or attributes; a backslash in a fact value is escaped in the fact table; a ticket key in a meeting link is matched as text, never as a pattern.
+
 ### Removed
 
 - `max_turns.lite` in `agents.yaml`; `max_turns.default` applies to both paths.

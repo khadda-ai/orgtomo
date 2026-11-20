@@ -42,7 +42,7 @@ export function ingest(root, cfg, m, { actor } = {}) {
   const attached = [];
   const waiting = [];
   for (const link of clean.ticket_links) {
-    const literal = new RegExp(`\\b${link.key}\\b`).test(haystack);
+    const literal = new RegExp(`\\b${String(link.key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(haystack); // the key is text to find, never a pattern
     if (link.basis === 'explicit' && !literal) fail(`Link to ${link.key} is marked explicit, but "${link.key}" does not appear in the meeting title, summary, decisions or action items. Mark it inferred.`, 'NOT_EXPLICIT');
     if (link.basis === 'explicit') { attach(root, link.key, clean, link.update, noteName); attached.push(link.key); }
     else if (!db.pending.some((p) => p.meeting_id === clean.meeting_id && p.key === link.key)) {
