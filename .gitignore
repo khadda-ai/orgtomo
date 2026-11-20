@@ -1,0 +1,11 @@
+node_modules/
+*.log
+.DS_Store
+coverage/
+# A workspace is never part of this repository
+orgtomo.config/
+.orgtomo/
+vault/
+source/
+.sf/
+.sfdx/

@@ -1,0 +1,18 @@
+Orgtomo
+Copyright (c) 2026 Khadda AI Labs
+
+This product includes the following third-party software.
+
+yaml (https://github.com/eemeli/yaml)
+  Bundled, minified, at engine/vendor/yaml.mjs.
+  License: ISC. Full text: engine/vendor/yaml.LICENSE.
+
+This product does not include, but is designed to be used with:
+
+forcedotcom/sf-skills (https://github.com/forcedotcom/sf-skills)
+  License: Apache-2.0. Installed by the user as separate Claude Code plugins,
+  pinned to the commit recorded in sf-skills.lock.
+
+Salesforce is a trademark of Salesforce, Inc. Orgtomo is an independent
+project and is not affiliated with, sponsored by or endorsed by Salesforce,
+Anthropic, Atlassian, Obsidian or Microsoft.

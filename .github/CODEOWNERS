@@ -1,0 +1,6 @@
+# Default reviewers for everything
+*                       @khadda-ai
+# Workflow and security-sensitive files always need a maintainer review
+/.github/workflows/     @khadda-ai
+/.github/CODEOWNERS     @khadda-ai
+SECURITY.md             @khadda-ai

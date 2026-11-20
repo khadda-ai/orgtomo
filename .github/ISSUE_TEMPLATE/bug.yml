@@ -1,0 +1,21 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Security problems (a guard that lets something through) are reported privately: Security tab, Report a vulnerability."
+  - type: input
+    id: version
+    attributes: { label: Orgtomo version, description: "orgtomo version" }
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes: { label: What happened, description: "What you ran or typed, what you expected, what you got. Remove org names, ids and addresses." }
+    validations: { required: true }
+  - type: textarea
+    id: doctor
+    attributes: { label: "Output of orgtomo doctor", render: json }
+  - type: input
+    id: env
+    attributes: { label: Environment, description: "OS, Node.js, Salesforce CLI and Claude Code versions" }
