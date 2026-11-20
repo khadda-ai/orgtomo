@@ -187,7 +187,7 @@ async function run() {
           const flat = (s) => s.replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').toLowerCase();
           const wanted = flat(quote);
           // Many documentation pages are built in the browser, so the text may sit in the page source rather than in the visible markup: look in both.
-          verified = flat(raw.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<[^>]+>/g, ' ')).includes(wanted) || flat(raw).includes(wanted);
+          verified = flat(raw.replace(/<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/gi, ' ').replace(/<[^>]+>/g, ' ')).includes(wanted) || flat(raw).includes(wanted);
         } catch { /* offline or blocked: recorded as unreachable */ }
         const e = addEvidence(root, key, { kind: 'doc', actor, command: url, summary: `Official doc: ${new URL(url).hostname}${verified === true ? ' (quote found on the page)' : verified === false ? ' (quote NOT found in the page source; a human should open the link)' : ' (page could not be fetched; a human should open the link)'}`, payload: { url, quote, quote_verified: verified }, meta: { quote_verified: verified } });
         return print({ evidence: e.id, quote_verified: verified, note: verified === true ? undefined : 'The engine could not confirm this quote. The citation is recorded as unconfirmed and the human is told at the next approval.' });
