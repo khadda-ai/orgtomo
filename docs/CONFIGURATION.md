@@ -37,7 +37,10 @@ Two orgs, three or more: add as many entries as you have. Exactly one has role `
 | `attempts.max` | 2 | Times one agent may redo a stage whose gates fail |
 | `autonomy` | `medium` | `low`: approve every stage. `medium`: plan and review. `high`: review only. Review approval cannot be removed. |
 | `lite` | on | `max_components`, `allowed_types` for the lite path |
-| `brain.types`, `brain.standard_objects` | see file | What `orgtomo brain retrieve` pulls |
+| `brain.types`, `brain.standard_objects` | see file | What `orgtomo brain sync` pulls |
+| `discover.org` | empty | The org studied by business discovery |
+| `discover.types` | see file | Extra metadata a discovery run retrieves: process, access and app metadata |
+| `baseline.max_test_classes` | 40 | A longer regression list is a human decision before it is run |
 | `api_version` | empty | Used for deploy packs when `sfdx-project.json` has no `sourceApiVersion` |
 | `keep_going` | true | The Lead does not stop between stages until a human gate |
 
@@ -48,11 +51,16 @@ Two orgs, three or more: add as many entries as you have. Exactly one has role `
 | `email_mode` | `blocked` | `blocked` or `allowlist_only` |
 | `allowed_emails` | example address | Globs allowed. An allow-all pattern is rejected. |
 | `allowed_email_domains`, `allowed_phones` | | |
+| `allowed_email_shapes` | false | Also allow broken variants (stray dots) of the allowed addresses, for tickets about address validation |
+| `verify_org_max_age_minutes` | 720 | How long "the org says it is a sandbox" is trusted before asking again |
+| `docs.require_verified` | false | `true`: a documentation quote the engine cannot find on the page fails the gate instead of being shown to the human |
 | `test_person` | Test Orgtomo | Name and company agents use for test records |
 | `canary_max_age_minutes` | 30 | How long a canary result is trusted |
 | `mask.field_patterns`, `mask.keep_fields` | see file | Masking by field name |
 | `mask.mask_sandbox_reads` | true | Mask sandbox query results too |
-| `browser.provider` | `playwright` | or `none` |
+| `browser.provider` | `playwright` | `playwright` (own browser, profile in the workspace), `playwright-extension` (attach to a browser you already run) or `none` |
+| `browser.login` | `frontdoor` | `frontdoor`: the engine signs the agent browser in through a one-time link from the CLI. `manual`: you sign in yourself |
+| `browser.session_minutes` | 60 | A new sign-in link is used when the last one is older than this |
 | `browser.claude_in_chrome` | false | Opt-in |
 | `browser.deny_path_patterns` | see file | Pages agents never open |
 | `protected_paths` | see file | Never writable by agents |
@@ -62,6 +70,8 @@ Two orgs, three or more: add as many entries as you have. Exactly one has role `
 ## agents.yaml
 
 See [AGENTS.md](AGENTS.md#models-and-effort). Also `max_turns.default`.
+
+`conventions.yaml` > `standards` holds your company's standing rules (which tools are standard, what is never done), one rule each with its reason. They reach the Planner, the Builder and the Reviewer as the `org-standards` skill.
 
 ## features.yaml
 

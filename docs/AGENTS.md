@@ -29,13 +29,13 @@ Agents have no free-form memory file. Notes an agent writes for itself are unver
 | Agent | Default model / effort | Preloaded playbooks | Capabilities | Writes |
 |---|---|---|---|---|
 | Tomo Lead | sonnet / medium | core rules, evidence, lead playbook | tracker.read; may spawn the team | nothing |
-| Analyst | opus / high | core rules, evidence, understand | tracker.read, docs.official, code.intel | `01-understanding` |
-| Reproducer | opus / xhigh | core rules, evidence, repro data-first, browser | browser.ui, code.intel | `02-repro` |
-| Planner | opus / xhigh | core rules, evidence, plan grounding, org style | docs.official, code.intel | `03-plan` |
-| Builder | opus / high | core rules, evidence, build, flow edit, org style | code.intel, flow.generate, docs.official | source of the build org, `04-build` |
-| Tester | sonnet / medium | core rules, evidence, test matrix, repro data-first, browser | browser.ui, code.intel | `05-qa`, `05-qa-<org>` |
-| Reviewer | fable / high | core rules, evidence, review rubric, org style | docs.official, code.intel | `06-review` |
-| Cartographer | sonnet / medium | core rules, brain keeper | code.intel | `orgs/<org>/understanding/` |
+| Analyst | opus / high | core rules, evidence, intake, understand, self-review | tracker.read, docs.official, code.intel | `01-understanding` |
+| Reproducer | opus / xhigh | core rules, evidence, repro data-first, browser, self-review | browser.ui, code.intel | `02-repro` |
+| Planner | opus / xhigh | core rules, evidence, plan grounding, ship, self-review, org style and standards | docs.official, code.intel | `03-plan` |
+| Builder | opus / high | core rules, evidence, build, flow edit, ship, org style and standards | code.intel, flow.generate, docs.official | source of the build org, `04-build` |
+| Tester | sonnet / medium | core rules, evidence, test matrix, repro data-first, browser, self-review | browser.ui, code.intel | `05-qa`, `05-qa-<org>` |
+| Reviewer | fable / high | core rules, evidence, review rubric, ship, self-review, org style and standards | docs.official, code.intel | `06-review` |
+| Cartographer | sonnet / medium | core rules, brain keeper, discover | code.intel | `orgs/<org>/understanding/`, `orgs/<org>/business/processes/` |
 
 Core agents cannot be switched off.
 
@@ -61,8 +61,12 @@ rules:
   reviewer_differs_from_builder: true
 ```
 
-- `model`: `sonnet`, `opus`, `haiku`, `fable`, `inherit`, or a full `claude-...` id.
-- `effort`: `low`, `medium`, `high`, `xhigh`, `max`. Available levels depend on the model.
+- `model`: an alias (`sonnet`, `opus`, `haiku`, `fable`), `inherit`, or a full `claude-...` id.
+  - An alias always means the newest version your Claude Code offers. A full id pins one version.
+  - The control panel shows, next to each alias, the version it stands for, and lets you pick a pinned version.
+- `effort`: `low`, `medium`, `high`, `xhigh`, `max`. Not every model offers every level; the control panel greys out the ones the chosen model does not have, and `doctor` warns about a mismatch.
+- The list of models comes from `spec/models.json`, shipped with each release. `orgtomo models refresh` replaces it for a workspace with the list of your own account. That needs `ANTHROPIC_API_KEY`; Claude Code itself offers no command that lists models. Any full model id works whether or not it is on the list.
+- "Reviewer differs from Builder" compares the models behind the names: `opus` and the full id it stands for count as the same.
 - From Claude Code: `/orgtomo:models planner opus xhigh`, or just `/orgtomo:models tester high` to change effort only.
 - Changes take effect in the next session; `orgtomo sync` runs automatically.
 
