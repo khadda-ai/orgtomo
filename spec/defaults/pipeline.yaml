@@ -1,0 +1,39 @@
+# How work moves between orgs. Deploys to targets are always done by a human.
+build_org: dev               # where agents build and test first
+brain_base: uat              # the org the Org Brain is built from
+drift_check: [prod]          # compared read-only against the base
+source_dir: source           # sfdx projects live in <source_dir>/<org>/
+api_version: ""              # empty = read sourceApiVersion from sfdx-project.json
+
+targets:                     # in order; one human deploy each
+  - org: uat
+    tool: blue-canvas        # blue-canvas | change-set | git-cli | generic
+    retest: true
+  - org: prod
+    tool: blue-canvas
+    retest: false            # production gets a read-only parity check only
+
+loop:
+  max: 2                     # test or review failures before the Lead stops; engine caps this at 3
+attempts:
+  max: 2                     # times one agent may redo a stage whose gates fail
+
+autonomy: medium             # low | medium | high
+approvals:                   # stages after which a human must approve
+  low: [understand, repro, plan, build, test, review]
+  medium: [plan, review]
+  high: [review]             # review approval can never be removed: it guards the deploy pack
+
+lite:
+  enabled: true
+  max_components: 3
+  allowed_types: [CustomLabels, Layout, ListView, CustomTab, StandardValueSet, GlobalValueSet, CompactLayout]
+  allowed_field_changes: [picklist-value, help-text, label]
+
+brain:
+  # Metadata types retrieved for the Org Brain. A type name alone means "all of them".
+  types: [ApexClass, ApexTrigger, Flow, CustomObject, LightningComponentBundle, PermissionSet, CustomLabels]
+  # Standard objects are not included by a wildcard; name the ones you customised.
+  standard_objects: [Account, Contact, Case, Lead, Opportunity]
+
+keep_going: true             # the Lead does not stop between stages until a human gate

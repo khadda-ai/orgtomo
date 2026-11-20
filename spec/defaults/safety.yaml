@@ -1,0 +1,49 @@
+# Data and e-mail rules. Nothing here can make production writable.
+email_mode: blocked          # blocked        = sandbox must have e-mail delivery off (checked by a canary)
+                             # allowlist_only = delivery may be on; only addresses below may ever appear
+canary_max_age_minutes: 30
+
+# Only these may appear in test data, scripts, browser input and drafts.
+# Globs are allowed: "you+*@example.com".
+allowed_emails:
+  - "tester+*@example.com"
+allowed_email_domains: []
+allowed_phones:
+  - "+15555550100"
+test_person:
+  first_name: "Test"
+  last_name: "Orgtomo"
+  company: "Orgtomo Test Account"
+
+mask:
+  # Field name patterns that are always masked when reading production
+  # (and sandboxes when mask_sandbox_reads is true). Types Email and Phone
+  # are masked by value pattern in addition to these.
+  field_patterns: ["*Email*", "*Phone*", "*Mobile*", "*Fax*", "*SSN*", "*Birthdate*", "*Street*", "*PostalCode*", "FirstName", "LastName", "Name"]
+  mask_sandbox_reads: true
+  keep_fields: ["Id", "CaseNumber", "Status", "RecordTypeId", "CreatedDate", "LastModifiedDate"]
+
+browser:
+  provider: playwright       # playwright | none
+  claude_in_chrome: false    # opt-in, separate Chrome profile only, never accepted as evidence
+  deny_path_patterns:        # never opened by agents
+    - "/lightning/setup/SecurityRemoteProxy*"
+    - "/lightning/setup/ManageUsers*"
+    - "/lightning/setup/DataManagementExport*"
+    - "/secur/logout.jsp*"
+    - "/_ui/system/security/ChangePassword*"
+
+protected_paths:             # agents can never write here
+  - "orgtomo.config/**"
+  - ".orgtomo/**"
+  - ".claude/**"
+  - ".mcp.json"
+  - "**/evidence/**"
+  - "**/backup/**"
+
+official_doc_hosts:          # the only web sources accepted as documentation evidence
+  - developer.salesforce.com
+  - help.salesforce.com
+  - architect.salesforce.com
+  - trailhead.salesforce.com
+  - admin.salesforce.com

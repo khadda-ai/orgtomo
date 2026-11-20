@@ -1,0 +1,62 @@
+// Write guard: who may write which file. Applies to Write, Edit and friends.
+import os from 'node:os';
+import path from 'node:path';
+import { matchAny } from '../util.js';
+import { rel } from '../paths.js';
+
+const deny = (reason) => ({ decision: 'deny', reason });
+const ALLOW = { decision: 'allow' };
+
+/**
+ * @param {string} filePath target of the write
+ * @param {{cfg: object, root: string, agent: string, stages: object[], activeStages: {key:string, stage:string}[], scratch?: string, guardsOff?: boolean}} ctx
+ */
+export function checkWrite(filePath, ctx) {
+  const { cfg, root, agent } = ctx;
+  const abs = path.resolve(root, filePath);
+  const r = rel(root, abs);
+  const inside = !r.startsWith('..') && !path.isAbsolute(r);
+  if (!inside) {
+    const tmp = [os.tmpdir(), '/tmp', '/private/tmp', ctx.scratch].filter(Boolean).map((t) => path.resolve(t));
+    if (tmp.some((t) => abs === t || abs.startsWith(t + path.sep))) return ALLOW;
+    return deny('Agents write only inside the Orgtomo workspace (or a temp folder).');
+  }
+  if (matchAny(cfg.safety.protected_paths, r) || ['orgtomo.config', '.orgtomo', '.claude'].some((d) => r === d || r.startsWith(d + '/')) || r === '.mcp.json') {
+    return deny(`"${r}" is protected. Configuration, engine state, evidence, backups and generated agent files are written only by the engine or the human.`);
+  }
+  if (ctx.guardsOff) return ALLOW;
+  if (agent === 'lead') return deny('The Lead does not write files. Hand the work to the agent that owns it.');
+
+  const src = `${cfg.pipeline.source_dir || 'source'}/`;
+  if (r.startsWith(src)) {
+    const orgName = r.slice(src.length).split('/')[0];
+    if (orgName !== cfg.pipeline.build_org) return deny(`"${src}${orgName}/" mirrors an org that only humans deploy to. It is refreshed by "orgtomo org retrieve", never edited.`);
+    if (agent !== 'builder') return deny(`Only the Builder changes source. You are "${agent}".`);
+    if (!ctx.activeStages.some((t) => t.stage === 'build')) return deny('No ticket is in the build stage. Source changes start only after the plan has passed its gates and approval.');
+    return ALLOW;
+  }
+  if (r.startsWith('vault/')) {
+    if (/^vault\/orgs\/[^/]+\/facts\//.test(r) || /^vault\/orgs\/[^/]+\/(maps|_index\.json|drift)/.test(r)) return deny('Org Brain facts are generated from metadata by "orgtomo brain". They are never written by hand.');
+    if (/^vault\/orgs\/[^/]+\/understanding\//.test(r)) return agent === 'cartographer' ? ALLOW : deny('Only the Cartographer writes understanding notes.');
+    if (/^vault\/(learning|people|meetings|decisions|conventions)\//.test(r) || /^vault\/(Home|log)\.md$/.test(r)) {
+      return deny('This part of the vault is written by the engine. Use the matching orgtomo command (learn, people, meetings).');
+    }
+    const m = /^vault\/tickets\/([^/]+)\/(.+)$/.exec(r);
+    if (m) {
+      const rest = m[2];
+      const isOutput = /\.(md|json)$/.test(rest);
+      const name = rest.replace(/\.(md|json)$/, '');
+      const stage = isOutput && (ctx.stages || []).find((x) => x.output && (name === x.output || name.startsWith(`${x.output}-`)));
+      if (stage) {
+        if (stage.owner !== agent) return deny(`"${rest}" belongs to the ${stage.owner}. You are "${agent}".`);
+        return ALLOW;
+      }
+      const support = { '00-baseline': 'baseline', '09-retro': 'coach' };
+      for (const [prefix, owner] of Object.entries(support)) if (rest.startsWith(prefix)) return owner === agent ? ALLOW : deny(`"${rest}" belongs to the ${owner}.`);
+      if (/^(status|verify-|escalation|updates|context-pack)/.test(rest) || rest.startsWith('07-deploy-pack/')) return deny(`"${rest}" is written by the engine.`);
+      return ALLOW; // work files: scripts, notes, screenshots
+    }
+    return deny('Agents write in the vault only inside a ticket folder or (Cartographer) understanding notes.');
+  }
+  return ALLOW;
+}

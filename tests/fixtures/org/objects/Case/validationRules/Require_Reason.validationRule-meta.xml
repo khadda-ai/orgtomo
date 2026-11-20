@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Require_Reason</fullName>
+    <active>true</active>
+    <errorConditionFormula>AND(IsEscalated, ISBLANK(TEXT(Escalation_Reason__c)))</errorConditionFormula>
+    <errorMessage>An escalated case needs a reason.</errorMessage>
+</ValidationRule>

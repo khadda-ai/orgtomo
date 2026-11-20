@@ -1,0 +1,51 @@
+{
+  "name": "orgtomo",
+  "version": "0.1.0",
+  "description": "A team of Claude Code agents that takes a Salesforce ticket from understanding to a verified deploy pack, with proof at every step.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Khadda AI Labs",
+  "homepage": "https://github.com/khadda-ai/orgtomo",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/khadda-ai/orgtomo.git"
+  },
+  "bugs": {
+    "url": "https://github.com/khadda-ai/orgtomo/issues"
+  },
+  "keywords": [
+    "salesforce",
+    "claude-code",
+    "claude-code-plugin",
+    "agents",
+    "apex",
+    "flow",
+    "devops",
+    "obsidian"
+  ],
+  "bin": {
+    "orgtomo": "engine/cli.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test tests/e2e-ticket.test.mjs tests/flow.test.mjs tests/guards.test.mjs tests/hook.test.mjs tests/knowledge.test.mjs tests/ui.test.mjs",
+    "check": "node scripts/check.mjs"
+  },
+  "files": [
+    "engine",
+    "spec",
+    "agents-src",
+    "skills-src",
+    "commands",
+    "hooks",
+    "bin",
+    "docs",
+    ".claude-plugin",
+    "sf-skills.lock",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ]
+}
