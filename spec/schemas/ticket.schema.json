@@ -1,0 +1,17 @@
+{
+  "$id": "ticket", "title": "Ticket as imported from the tracker", "type": "object",
+  "required": ["key", "title", "type", "description", "acceptance_criteria", "source"], "additionalProperties": false,
+  "properties": {
+    "key": { "$ref": "_defs#/$defs/ticketKey" },
+    "title": { "type": "string", "minLength": 3 },
+    "type": { "enum": ["bug", "feature", "config", "question"] },
+    "description": { "type": "string", "minLength": 1 },
+    "acceptance_criteria": { "type": "array", "items": { "type": "object", "required": ["id", "text"], "additionalProperties": false,
+      "properties": { "id": { "$ref": "_defs#/$defs/acId" }, "text": { "type": "string", "minLength": 3 } } } },
+    "people": { "type": "array", "items": { "type": "string" } },
+    "comments_summary": { "type": "string" },
+    "links": { "type": "array", "items": { "type": "string" } },
+    "source": { "type": "object", "required": ["tool", "fetched_at"], "additionalProperties": false,
+      "properties": { "tool": { "type": "string", "minLength": 2 }, "fetched_at": { "type": "string", "minLength": 10 } } }
+  }
+}

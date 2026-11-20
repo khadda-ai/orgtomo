@@ -1,0 +1,90 @@
+# Orgtomo stage machine. The engine interprets this file; nothing about the
+# ticket lifecycle is hard-coded. A workspace may override it by placing a
+# copy at orgtomo.config/stages.yaml.
+#
+# owner      agent that produces the stage output
+# output     base name of the two files the agent writes in the ticket folder:
+#            <output>.md (for humans) and <output>.json (contract, machine-checked)
+# contract   JSON Schema in spec/schemas/<contract>.schema.json
+# gates      ids from gates.yaml; all must pass before the stage can move on
+# before     support agents that run before the owner (skipped when disabled)
+# lead_verify  the Lead must re-check at least one claim after the gates pass
+# on_verdict when the contract itself reports failure (honest "tests failed"),
+#            jump back and count one loop
+version: 1
+stages:
+  - id: open
+    owner: lead
+    output: 00-ticket
+    contract: ticket
+    gates: [contract]
+    lead_verify: false
+
+  - id: understand
+    owner: analyst
+    output: 01-understanding
+    contract: understanding
+    gates: [contract, evidence, no-blocking-questions]
+    lead_verify: true
+
+  - id: repro
+    owner: reproducer
+    output: 02-repro
+    contract: repro
+    gates: [contract, evidence, repro-proof, data-safe]
+    lead_verify: true
+    lite: light
+
+  - id: plan
+    owner: planner
+    output: 03-plan
+    contract: plan
+    gates: [contract, evidence, plan-grounding, plan-coverage, naming-plan]
+    lead_verify: true
+
+  - id: build
+    owner: builder
+    before: [baseline]
+    output: 04-build
+    contract: build
+    gates: [contract, scope-check, backup-check, naming-lint, comment-lint, format-lint, forbidden-lint, data-safe, deploy-check]
+    lead_verify: true
+
+  - id: test
+    owner: tester
+    output: 05-qa
+    contract: qa
+    gates: [contract, evidence, assertion-referee, rerun, no-regression, test-quality, data-safe]
+    lead_verify: true
+    on_verdict:
+      field: verdict
+      fail_value: fail
+      goto: plan
+
+  - id: review
+    owner: reviewer
+    output: 06-review
+    contract: review
+    gates: [contract, evidence, review-rubric, reviewer-independence]
+    lead_verify: false
+    lite: light
+    on_verdict:
+      field: verdict
+      fail_value: changes
+      goto: plan
+
+  - id: handoff
+    kind: human
+    repeat_for: pipeline.targets
+    steps: [deploy-pack, wait-human-deploy, parity-check, retest]
+
+  - id: close
+    owner: scribe
+    after: [coach, cartographer]
+    output: 08-comms
+    contract: comms
+    gates: [contract, comms-safe]
+    lead_verify: false
+
+  - id: done
+    kind: terminal

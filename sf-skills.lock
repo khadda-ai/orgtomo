@@ -1,0 +1,17 @@
+{
+  "repository": "https://github.com/forcedotcom/sf-skills",
+  "license": "Apache-2.0",
+  "sha": "788b83fb9f5effb4f1548e3090df415704d3ec64",
+  "verified": "2026-11-19",
+  "plugins": {
+    "salesforce-development": {
+      "path": "plugins/builder/salesforce-development",
+      "version": "2.8.0"
+    },
+    "salesforce-code-quality": {
+      "path": "plugins/builder/salesforce-code-quality",
+      "version": "0.2.0"
+    }
+  },
+  "notes": "Move the pin deliberately: read the upstream changelog, update the sha here and in .claude-plugin/marketplace.json, run the test suite, and try one ticket in a sandbox."
+}

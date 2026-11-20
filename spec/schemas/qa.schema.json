@@ -1,0 +1,21 @@
+{
+  "$id": "qa", "title": "Tester output", "type": "object",
+  "required": ["key", "org", "results", "regression", "repro_rerun", "bulk", "verdict", "failures", "claims"], "additionalProperties": false,
+  "properties": {
+    "key": { "$ref": "_defs#/$defs/ticketKey" },
+    "org": { "type": "string" },
+    "results": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["test", "covers", "outcome", "proof"], "additionalProperties": false,
+      "properties": { "test": { "type": "string" }, "covers": { "type": "array", "items": { "$ref": "_defs#/$defs/acId" } },
+        "outcome": { "enum": ["pass", "fail", "blocked"] }, "proof": { "$ref": "_defs#/$defs/proof" }, "notes": { "type": "string" } } } },
+    "regression": { "type": "array", "items": { "type": "object", "required": ["name", "outcome"], "additionalProperties": false,
+      "properties": { "name": { "type": "string" }, "outcome": { "enum": ["pass", "fail"] }, "evidence": { "type": "string" } } } },
+    "repro_rerun": { "type": "object", "required": ["outcome", "proof"], "additionalProperties": false,
+      "properties": { "outcome": { "enum": ["fixed", "still_failing", "not_applicable"] }, "proof": { "$ref": "_defs#/$defs/evidenceIds" } } },
+    "bulk": { "type": "object", "required": ["tested", "records"], "additionalProperties": false,
+      "properties": { "tested": { "type": "boolean" }, "records": { "type": "integer", "minimum": 0 }, "proof": { "$ref": "_defs#/$defs/evidenceIds" } } },
+    "verdict": { "enum": ["pass", "fail"] },
+    "failures": { "type": "array", "items": { "type": "object", "required": ["test", "why", "suspected_stage"], "additionalProperties": false,
+      "properties": { "test": { "type": "string" }, "why": { "type": "string", "minLength": 10 }, "suspected_stage": { "enum": ["plan", "build"] }, "proof": { "$ref": "_defs#/$defs/evidenceIds" } } } },
+    "claims": { "$ref": "_defs#/$defs/claims" }
+  }
+}

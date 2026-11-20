@@ -1,0 +1,34 @@
+# Gate catalogue. Each gate has one of seven types:
+#   schema    contract shape is valid
+#   evidence  every claim points to proof the engine itself recorded
+#   lint      static rule on files or contract content
+#   org-check proof that something really happened in an org
+#   rerun     something was executed again after the change
+#   safety    data, e-mail and posting rules
+#   diff      two things are compared (plan vs build, org vs org, before vs after)
+# impl is the function name in engine/lib/gates.js.
+version: 1
+gates:
+  contract:              { type: schema,   impl: contract,             why: "Output matches its contract and the human-readable file exists." }
+  evidence:              { type: evidence, impl: evidence,             why: "Every claim cites evidence recorded by the engine. No hedging words." }
+  no-blocking-questions: { type: lint,     impl: noBlockingQuestions,  why: "Open questions marked blocking go to the human instead of being guessed." }
+  repro-proof:           { type: org-check, impl: reproProof,          why: "A bug is reproduced with data proof from a non-production org, never from reading code." }
+  data-safe:             { type: safety,   impl: dataSafe,             why: "No e-mail address or phone number outside the allow list appears in outputs or changed files." }
+  plan-grounding:        { type: evidence, impl: planGrounding,        why: "Every component the plan touches exists in the Org Brain (or is marked new and does not exist)." }
+  plan-coverage:         { type: lint,     impl: planCoverage,         why: "Every acceptance criterion is covered by at least one planned test." }
+  naming-plan:           { type: lint,     impl: namingPlan,           why: "New component names in the plan follow conventions.yaml." }
+  scope-check:           { type: diff,     impl: scopeCheck,           why: "Built components equal planned components; anything else is a declared deviation." }
+  backup-check:          { type: org-check, impl: backupCheck,         why: "Every modified or deleted component was backed up before the change." }
+  naming-lint:           { type: lint,     impl: namingLint,           why: "Component and element names follow conventions.yaml." }
+  comment-lint:          { type: lint,     impl: commentLint,          why: "Headers, change lines and Flow descriptions follow conventions.yaml." }
+  format-lint:           { type: lint,     impl: formatLint,           why: "Indentation, line length and sharing default follow conventions.yaml." }
+  forbidden-lint:        { type: lint,     impl: forbiddenLint,        why: "Forbidden patterns such as hard-coded record ids are absent." }
+  deploy-check:          { type: org-check, impl: deployCheck,         why: "The change was deployed to the build org by the engine and the deploy succeeded." }
+  assertion-referee:     { type: evidence, impl: assertionReferee,     why: "Every acceptance criterion has a passing result with proof; the verdict matches the results." }
+  rerun:                 { type: rerun,    impl: rerun,                why: "The reproduction scenario was executed again after the build." }
+  no-regression:         { type: diff,     impl: noRegression,         why: "Tests that passed in the baseline still pass." }
+  test-quality:          { type: lint,     impl: testQuality,          why: "Apex tests assert, avoid SeeAllData and cover bulk when automation changed." }
+  review-rubric:         { type: lint,     impl: reviewRubric,         why: "Every rubric item is answered; a failed item or blocker forces the verdict to changes." }
+  reviewer-independence: { type: lint,     impl: reviewerIndependence, why: "Reviewer runs on a different model from the Builder unless the rule is turned off." }
+  comms-safe:            { type: safety,   impl: commsSafe,            why: "Messages are drafts only and contain no address outside the allow list." }
+  lessons-evidence:      { type: evidence, impl: lessonsEvidence,      why: "Every proposed lesson cites at least one recorded observation." }

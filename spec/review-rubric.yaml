@@ -1,0 +1,15 @@
+# Items the Reviewer must answer. "core: true" items are the light rubric used
+# on the lite path. Add your own items in orgtomo.config/review-rubric.yaml.
+version: 1
+items:
+  - { id: R1,  core: true,  text: "The change does what the acceptance criteria ask, nothing more." }
+  - { id: R2,  core: true,  text: "Nothing that worked before is broken (baseline and regression results)." }
+  - { id: R3,  core: true,  text: "No SOQL or DML inside loops; code is bulk-safe for 200+ records." }
+  - { id: R4,  core: true,  text: "Sharing, CRUD and FLS are respected; no unintended data exposure." }
+  - { id: R5,  core: true,  text: "Naming, comments and format follow the org conventions." }
+  - { id: R6,  core: false, text: "Order of execution on each touched object is understood and there is no recursion." }
+  - { id: R7,  core: false, text: "Governor limits: queries, DML rows, CPU and heap were considered for the largest realistic volume." }
+  - { id: R8,  core: false, text: "Tests assert behaviour, include negative cases and do not depend on org data." }
+  - { id: R9,  core: false, text: "No hard-coded ids, URLs or credentials; configuration lives in metadata." }
+  - { id: R10, core: false, text: "Rollback is possible with the recorded backup and the deploy pack is complete." }
+  - { id: R11, core: false, text: "Every claim in earlier stages that the change depends on was re-checked against evidence." }

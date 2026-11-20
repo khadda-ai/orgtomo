@@ -1,0 +1,22 @@
+# Your Salesforce orgs. Add as many as you have: two, three, ten.
+# role decides what Orgtomo may do there:
+#   build       agents may deploy metadata and create test data (your dev sandbox)
+#   test        humans deploy; agents may create test data if data_write is true
+#   reference   read-only
+#   production  read-only and masked. This cannot be relaxed by any setting.
+company: "My Company"
+orgs:
+  dev:
+    alias: my-dev            # sf CLI alias (sf org list)
+    role: build
+    host: ""                 # e.g. mycompany--dev.sandbox.my.salesforce.com (used for the browser fence)
+    data_write: true
+  uat:
+    alias: my-uat
+    role: test
+    host: ""
+    data_write: true
+  prod:
+    alias: my-prod
+    role: production
+    host: ""

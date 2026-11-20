@@ -1,0 +1,10 @@
+{
+  "name": "orgtomo",
+  "version": "0.1.0",
+  "description": "A team of agents that takes a Salesforce ticket from understanding to a verified deploy pack. Every claim needs proof; production is read-only; humans deploy.",
+  "author": { "name": "Khadda AI Labs" },
+  "homepage": "https://github.com/khadda-ai/orgtomo",
+  "repository": "https://github.com/khadda-ai/orgtomo",
+  "license": "MIT",
+  "keywords": ["salesforce", "apex", "flow", "agents", "devops", "obsidian"]
+}

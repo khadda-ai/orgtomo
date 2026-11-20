@@ -1,0 +1,20 @@
+{
+  "$id": "repro", "title": "Reproducer output", "type": "object",
+  "required": ["key", "mode", "reproduced", "org", "steps", "data_used", "before_state", "claims"], "additionalProperties": false,
+  "properties": {
+    "key": { "$ref": "_defs#/$defs/ticketKey" },
+    "mode": { "enum": ["bug", "feature"] },
+    "reproduced": { "enum": [true, false, "not_applicable"] },
+    "org": { "type": "string", "minLength": 1 },
+    "steps": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["n", "action", "expected", "actual", "proof"], "additionalProperties": false,
+      "properties": { "n": { "type": "integer", "minimum": 1 }, "action": { "type": "string" }, "expected": { "type": "string" }, "actual": { "type": "string" }, "proof": { "$ref": "_defs#/$defs/proof" } } } },
+    "data_used": { "type": "array", "items": { "type": "object", "required": ["object", "created_by_ticket"], "additionalProperties": false,
+      "properties": { "object": { "type": "string" }, "record_id": { "type": "string" }, "created_by_ticket": { "type": "boolean" } } } },
+    "before_state": { "type": "object", "required": ["text", "proof"], "additionalProperties": false,
+      "properties": { "text": { "type": "string", "minLength": 10 }, "proof": { "$ref": "_defs#/$defs/proof" } } },
+    "root_cause": { "type": "object", "required": ["text", "proof"], "additionalProperties": false,
+      "properties": { "text": { "type": "string", "minLength": 10 }, "proof": { "$ref": "_defs#/$defs/proof" } } },
+    "could_not_reproduce_reason": { "type": "string" },
+    "claims": { "$ref": "_defs#/$defs/claims" }
+  }
+}

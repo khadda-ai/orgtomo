@@ -1,0 +1,37 @@
+# Your org's style. Agents load this as skills and the lint gates enforce it.
+# Everything is a pattern you can change; empty means "no rule".
+naming:
+  apex_class:    "^[A-Z][A-Za-z0-9]+(Service|Selector|Handler|Batch|Util|Controller|Queueable|Schedulable|Exception)$"
+  apex_test:     "^[A-Z][A-Za-z0-9]+Test$"
+  apex_trigger:  "^[A-Z][A-Za-z0-9]+Trigger$"
+  flow:          "^[A-Za-z0-9]+_(BeforeSave|AfterSave|Screen|Scheduled|Autolaunched)_[A-Za-z0-9_]+$"
+  flow_element:
+    decisions:     "^Is_|^Has_|^Check_"
+    recordLookups: "^Get_"
+    recordUpdates: "^Update_"
+    recordCreates: "^Create_"
+    recordDeletes: "^Delete_"
+    assignments:   "^Set_|^Assign_"
+    loops:         "^Loop_"
+  custom_field:  "^[A-Z][A-Za-z0-9_]*__c$"
+  custom_object: "^[A-Z][A-Za-z0-9_]*__c$"
+  lwc:           "^[a-z][A-Za-z0-9]+$"
+  test_record_min_words: 3
+comments:
+  class_header_required: true
+  class_header_tags: ["@description"]       # tags that must appear in the header of every new or changed class
+  change_line: "// {date} | {ticket} | {author} | {what}"
+  change_line_required: true                # every modified Apex file carries a change line with the ticket key
+  flow_description_required: true
+  author: "Orgtomo"
+format:
+  indent: 4
+  indent_style: space                       # space | tab
+  max_line: 120
+  sharing_default: "with sharing"           # every new class declares sharing; this one is the default
+  trigger_pattern: "one trigger per object, logic in a handler class"
+forbidden:
+  - { id: hard-coded-id,   pattern: "['\"][a-zA-Z0-9]{5}0[a-zA-Z0-9]{9}([a-zA-Z0-9]{3})?['\"]", files: "*.cls,*.trigger", why: "Hard-coded record ids break between orgs." }
+  - { id: system-debug,    pattern: "System\\.debug\\(", files: "*.cls,*.trigger", except: "*Test.cls", why: "No System.debug in committed code." }
+  - { id: see-all-data,    pattern: "SeeAllData\\s*=\\s*true", files: "*.cls", why: "Tests must not depend on org data." }
+  - { id: without-sharing, pattern: "\\bwithout sharing\\b", files: "*.cls", why: "without sharing needs a written reason in the plan (declare it as a deviation)." }
