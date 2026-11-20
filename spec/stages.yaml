@@ -24,7 +24,7 @@ stages:
     owner: analyst
     output: 01-understanding
     contract: understanding
-    gates: [contract, evidence, no-blocking-questions]
+    gates: [contract, evidence, intake-check, no-blocking-questions]
     lead_verify: true
 
   - id: repro
@@ -39,7 +39,7 @@ stages:
     owner: planner
     output: 03-plan
     contract: plan
-    gates: [contract, evidence, plan-grounding, plan-coverage, naming-plan]
+    gates: [contract, evidence, plan-grounding, plan-coverage, naming-plan, self-review]
     lead_verify: true
 
   - id: build

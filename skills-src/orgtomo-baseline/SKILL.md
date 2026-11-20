@@ -9,9 +9,13 @@ user-invocable: false
 
 `orgtomo org backup <KEY> "<Type:Name>" "<Type:Name>"` takes the current org version of each component into `vault/tickets/<KEY>/backup/<build org>/`. Components that do not exist yet are reported as new. One command may list all planned components.
 
+If the command fails, the fault is in a tool, not in your work. Record `"status": "failed"` with the exact message in `"reason"`, run `orgtomo block <KEY> --reason "<the exact message>"`, and stop. Never fill the backup folder by hand.
+
 ## Existing tests
 
-Find them from the Brain: the test classes in the "Used by" list of each planned class, and classes named `<ClassName>Test`. Run them with `orgtomo org test <build org> --class <A> --class <B> --ticket <KEY>`.
+Run the classes the plan lists in `regression_tests`. If it lists none, ask the Brain: `orgtomo brain tests <build org> "<Type:Name>" ...` returns, for a class, its own tests, and for anything on an object (a flow, a rule, a field, a trigger), every test class that touches that object.
+
+Run them with `orgtomo org test <build org> --class <A> --class <B> --ticket <KEY>`. If the list is very long, say how long and block the ticket for a human decision before you run it.
 
 Record every method with its outcome. Do not leave out failing ones.
 

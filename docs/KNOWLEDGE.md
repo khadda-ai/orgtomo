@@ -1,22 +1,23 @@
 # Knowledge
 
-Four kinds of knowledge live in the vault. All of them are plain Markdown that opens in [Obsidian](https://obsidian.md). Obsidian is a viewer and editor for a folder of notes; Orgtomo does not depend on it running.
+Five kinds of knowledge live in the vault. All of them are plain Markdown. You can browse the Org Brain in the control panel (`orgtomo ui`), or open the folder in [Obsidian](https://obsidian.md), a free viewer and editor for a folder of notes. Orgtomo does not depend on it, and Obsidian has no assistant of its own: the notes are written by the engine and its agents.
 
 ## Org Brain
 
 A generated map of an org.
 
 ```bash
-orgtomo brain retrieve uat     # metadata into source/uat/
-orgtomo brain build uat        # notes, index, maps
+orgtomo brain sync uat         # metadata into source/uat/, then notes, index, maps
 orgtomo brain status
+orgtomo brain object uat Case  # everything on one object
 orgtomo brain drift uat prod
 ```
 
 | File | Content |
 |---|---|
 | `orgs/<org>/facts/<Type>/<Name>.md` | Key facts of one component, what it uses, what uses it. Frontmatter carries the source path and its hash. |
-| `orgs/<org>/facts/_automation/<Object>.md` | Everything that runs on the object, grouped in the order of a record save |
+| `orgs/<org>/objects/<Object>.md` | The hub page of an object: counts, where to start, a table of everything on it, the tests that touch it, the tickets that changed it, the notes about it |
+| `orgs/<org>/facts/_automation/<Object>.md` | Everything that runs on the object, grouped in the order of a record save; process metadata (approvals, assignment and escalation rules, paths) is listed after it without a claim about order |
 | `orgs/<org>/maps/<Object>.canvas` | The same as a JSON Canvas map |
 | `orgs/<org>/Components.base` | An Obsidian Base (table view) over the fact notes |
 | `orgs/<org>/_index.json` | Machine index used by gates and context packs |
@@ -24,7 +25,7 @@ orgtomo brain drift uat prod
 | `orgs/<org>/drift-vs-<base>.md` | Differences between two orgs |
 | `log.md` | What changed at each build |
 
-What is parsed today: Apex classes and triggers, flows, custom objects and fields, validation rules, record types, Lightning web components, permission sets and profiles. Other retrieved types get a note with path and hash.
+What is parsed in detail: Apex classes and triggers, flows, custom objects and fields, validation rules, record types, Lightning web components, permission sets and profiles. Process, access and app metadata (approval processes, assignment, escalation and auto-response rules, workflow, paths, queues, roles, permission set groups, quick actions, pages, layouts, apps, tabs, custom metadata records, named credentials, connected apps, installed packages) is read by a generic reader: single values become facts, repeated values become lists, repeated structures are counted. It does not depend on the element names of a type, so it does not go wrong when Salesforce adds one.
 
 Rules:
 
@@ -35,7 +36,34 @@ Rules:
 
 ### Context packs
 
-`orgtomo brain pack <KEY>` writes `tickets/<KEY>/context-pack.md`: components matching the ticket, what is one step away from them, the automation notes of the objects involved, and pointers to meeting updates and lessons. Agents start from it instead of searching the org blind.
+`orgtomo brain pack <KEY>` writes `tickets/<KEY>/context-pack.md`: components matching the ticket, what is one step away from them, the automation notes and hub pages of the objects involved, and pointers to meeting updates and lessons. Agents start from it instead of searching the org blind.
+
+How a component gets into the pack:
+
+- **API names written anywhere in the ticket** (title, description, criteria) are looked up first. A field, validation rule or record type is stored as `Object.Name`, and a ticket names it without the object, so the part after the dot counts as an exact match.
+- **Other words of the title** count by how rare they are in this org. A word that matches one component says more than a word that matches fifty.
+- Every line says why it matched.
+- After the Analyst has named the affected components, the engine **rebuilds the pack around them**.
+
+## Business discovery (optional)
+
+```bash
+orgtomo discover run uat --retrieve
+```
+
+What does this company use the org for? Three parts answer that, each by whoever can answer it honestly.
+
+| Part | By | Files in `orgs/<org>/business/` |
+|---|---|---|
+| What exists | the engine | `Overview.md`; `domains/<area>.md` with every object of the area, its record total, record types, the steps a record goes through, what runs on it |
+| How it works | the Cartographer | `processes/<area>.md`: how a record moves, what happens automatically, who does what, which other systems are involved |
+| What only a person knows | you | `Questions.md`; answer with `/orgtomo:discover answer <org> <Q id> <text>` or in the control panel |
+
+Every object is put into exactly one area: by what it is (a known standard object, a package's object), then by what its lookup fields point to, and only then by the app that shows it. Apps are a weak signal, because one company often has many apps over the same objects.
+
+A process note is checked statement by statement (`orgtomo discover check`). Each list item must link to a fact or hub page, or end with `(inferred)` or `(ask)`. A statement that is none of these is refused. That is the difference between a map and a story.
+
+Discovery reads metadata and record totals. It never reads record values. Metadata shows what the system does; it does not show why the business wants it, which is why part three exists.
 
 ## Self-learning
 

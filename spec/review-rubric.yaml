@@ -13,3 +13,4 @@ items:
   - { id: R9,  core: false, text: "No hard-coded ids, URLs or credentials; configuration lives in metadata." }
   - { id: R10, core: false, text: "Rollback is possible with the recorded backup and the deploy pack is complete." }
   - { id: R11, core: false, text: "Every claim in earlier stages that the change depends on was re-checked against evidence." }
+  - { id: R12, core: false, text: "The work was challenged before handover: zero results have a control, numbers say what was counted, the same pattern was looked for elsewhere, and the rollback is as careful as the change." }

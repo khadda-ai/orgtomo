@@ -9,8 +9,11 @@ user-invocable: false
 
 | Task | Command |
 |---|---|
+| Retrieve and rebuild in one step | `orgtomo brain sync <org>` |
 | Pull metadata of an org into `source/<org>/` | `orgtomo brain retrieve <org>` |
 | Generate or refresh fact notes | `orgtomo brain build <org>` |
+| Everything about one object | `orgtomo brain object <org> <Object>` |
+| Tests that touch a component | `orgtomo brain tests <org> <Type:Name> ...` |
 | Is it present and current | `orgtomo brain status [org]` |
 | Find components | `orgtomo brain search <org> <words>` |
 | One component with freshness | `orgtomo brain fact <org> <Type:Name>` |
@@ -21,6 +24,7 @@ The types retrieved are listed in `pipeline.yaml` (`brain.types`, `brain.standar
 ## What the Brain contains
 
 - `facts/<Type>/<Name>.md`: generated. Key facts, "Uses", "Used by".
+- `objects/<Object>.md`: generated hub. One page per object that links its fields, automation, tests, tickets and understanding notes. Start here.
 - `facts/_automation/<Object>.md`: everything that runs on an object, in save order.
 - `maps/<Object>.canvas`: the same as a picture.
 - `understanding/`: your notes.

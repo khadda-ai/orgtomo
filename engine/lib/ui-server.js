@@ -11,12 +11,15 @@ import * as T from './ticket.js';
 import * as L from './learning.js';
 import * as P from './people.js';
 import * as M from './meetings.js';
-import { brainStatus } from './brain.js';
+import { brainStatus, search as brainSearch, brainFact, objectView } from './brain.js';
+import { discoverStatus, answerQuestion } from './discover.js';
+import { loadCatalogue, modelOptions, refreshModels } from './models.js';
+import { obsidianStatus } from './obsidian.js';
 import { listEvidence } from './evidence.js';
 import { readCanary, recordCanary } from './canary.js';
 import { doctor } from './doctor.js';
 import { sync } from './sync.js';
-import { exists, readText, listFiles, OrgtomoError } from './util.js';
+import { exists, readText, readJson, listFiles, OrgtomoError } from './util.js';
 
 const UI_DIR = path.join(PLUGIN_ROOT, 'engine', 'ui');
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
@@ -25,12 +28,15 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; ch
 export function uiState(root) {
   const cfg = loadConfig(root);
   const { errors, warnings } = validateConfig(cfg);
+  const cat = loadCatalogue(root);
   const orgs = Object.entries(cfg.orgs.orgs || {}).map(([name, o]) => ({ name, alias: o.alias, role: o.role, host: o.host || '', canary: readCanary(root)[name] || null }));
   return {
     company: cfg.orgs.company, errors, warnings, orgs,
     pipeline: { build_org: cfg.pipeline.build_org, brain_base: cfg.pipeline.brain_base, targets: cfg.pipeline.targets, autonomy: cfg.pipeline.autonomy, loop_max: loopMax(cfg), approvals: errors.length ? [] : approvalStages(cfg), lite: cfg.pipeline.lite },
     agents: cfg.agents.agents, agent_rules: cfg.agents.rules, models: MODELS, efforts: EFFORTS,
-    features: cfg.features, safety: { email_mode: cfg.safety.email_mode, allowed_emails: cfg.safety.allowed_emails, allowed_email_domains: cfg.safety.allowed_email_domains, allowed_phones: cfg.safety.allowed_phones, canary_max_age_minutes: cfg.safety.canary_max_age_minutes, mask_sandbox_reads: cfg.safety.mask?.mask_sandbox_reads !== false, claude_in_chrome: cfg.safety.browser?.claude_in_chrome === true },
+    model_options: modelOptions(cat), model_catalogue: { source: cat.source, at: cat.fetched_at || cat.updated },
+    features: cfg.features, safety: { email_mode: cfg.safety.email_mode, allowed_emails: cfg.safety.allowed_emails, allowed_email_domains: cfg.safety.allowed_email_domains, allowed_phones: cfg.safety.allowed_phones, canary_max_age_minutes: cfg.safety.canary_max_age_minutes, mask_sandbox_reads: cfg.safety.mask?.mask_sandbox_reads !== false, claude_in_chrome: cfg.safety.browser?.claude_in_chrome === true, browser_login: cfg.safety.browser?.login || 'manual', browser_provider: cfg.safety.browser?.provider || 'none', allowed_email_shapes: cfg.safety.allowed_email_shapes === true },
+    discover: errors.length ? [] : discoverStatus(root, cfg), obsidian: obsidianStatus(root),
     tickets: T.listTickets(root).map(T.summary).sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at))),
     stages: T.stagesOf(root).map((s) => ({ id: s.id, owner: s.owner || 'human' })),
     brain: errors.length ? [] : Object.keys(cfg.orgs.orgs || {}).map((o) => brainStatus(root, cfg, o)),
@@ -46,7 +52,8 @@ function ticketDetail(root, key) {
   const dir = layout(root).ticketDir(key);
   const files = exists(dir) ? listFiles(dir).filter((f) => !f.startsWith('evidence/') && !f.startsWith('backup/') && !f.startsWith('07-deploy-pack/')) : [];
   const reports = files.filter((f) => /^(verify-.*|escalation|updates)\.md$/.test(f)).map((f) => ({ name: f, text: readText(path.join(dir, f)).replace(/^---\n[\s\S]*?\n---\n/, '') }));
-  return { ticket: t, next: T.next(root, cfg, key), reports, files, evidence: listEvidence(root, key).map(({ id, kind, org, actor, at, ok, summary }) => ({ id, kind, org, actor, at, ok, summary })) };
+  const understanding = readJson(path.join(dir, '01-understanding.json'), null);
+  return { ticket: t, next: T.next(root, cfg, key), reports, files, understanding, understanding_page: exists(path.join(dir, '01-understanding.html')) ? `vault/tickets/${key}/01-understanding.html` : null, evidence: listEvidence(root, key).map(({ id, kind, org, actor, at, ok, summary }) => ({ id, kind, org, actor, at, ok, summary })) };
 }
 
 function act(root, body) {
@@ -67,6 +74,7 @@ function act(root, body) {
     case 'proposal': return P.confirmProposal(root, cfg, body.id, { accept: body.accept !== false, as: body.as === 'avoid' ? 'avoid' : 'prefers' });
     case 'meeting-link': return M.confirmLink(root, cfg, body.id, body.accept !== false);
     case 'canary': { const o = getOrg(cfg, body.org); if (isProduction(o)) throw new OrgtomoError('Production has no canary.'); return recordCanary(root, o.name, body.status, 'human', 'set in the UI'); }
+    case 'discover-answer': return answerQuestion(root, cfg, getOrg(cfg, body.org).name, body.id, body.note || '');
     case 'sync': return sync(root, cfg);
     default: throw new OrgtomoError(`Unknown action "${body.verb}".`);
   }
@@ -92,10 +100,22 @@ export function createHandler(root, token, port) {
       if (req.method === 'GET' && url.pathname === '/api/state') return send(200, uiState(root));
       if (req.method === 'GET' && url.pathname === '/api/doctor') return send(200, doctor(root, { orgs: url.searchParams.get('orgs') === '1' }));
       if (req.method === 'GET' && url.pathname.startsWith('/api/ticket/')) return send(200, ticketDetail(root, decodeURIComponent(url.pathname.slice('/api/ticket/'.length))));
+      if (req.method === 'GET' && url.pathname.startsWith('/api/brain/')) {
+        const cfg = loadConfig(root);
+        const orgName = getOrg(cfg, url.searchParams.get('org') || '').name;
+        const what = url.pathname.slice('/api/brain/'.length);
+        if (what === 'search') return send(200, brainSearch(root, cfg, orgName, String(url.searchParams.get('q') || '').split(/\s+/).filter(Boolean), { limit: 40 }));
+        if (what === 'component') return send(200, brainFact(root, cfg, orgName, url.searchParams.get('ref') || ''));
+        if (what === 'object') return send(200, objectView(root, cfg, orgName, url.searchParams.get('name') || ''));
+        return send(404, { error: 'Not found.' });
+      }
       if (req.method === 'POST' && url.pathname === '/api/action') {
         let raw = '';
         for await (const c of req) { raw += c; if (raw.length > 200_000) return send(413, { error: 'Too large.' }); }
-        return send(200, { ok: true, result: act(root, JSON.parse(raw || '{}')) });
+        const body = JSON.parse(raw || '{}');
+        // The one action that goes to the network: asking the account which models it can use.
+        if (body.verb === 'models-refresh') return send(200, { ok: true, result: await refreshModels(root) });
+        return send(200, { ok: true, result: act(root, body) });
       }
       return send(404, { error: 'Not found.' });
     } catch (e) {

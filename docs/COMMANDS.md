@@ -17,14 +17,15 @@ Some actions are **human only**: approve, reject, hold, resume, answer, deployed
 | `/orgtomo:reject [KEY] <reason>` | Reject it with a reason (human) |
 | `/orgtomo:answer [KEY] [Q1\|repro] <text>` | Answer a blocking question (human) |
 | `/orgtomo:deployed <org> [KEY]` | You finished a deploy to that org (human) |
-| `/orgtomo:hold <KEY>` / `/orgtomo:resume [KEY] [direction]` | Park, continue, or redirect after a stop (human) |
+| `/orgtomo:hold <KEY>` / `/orgtomo:resume [KEY] [direction]` | Park, continue, redirect after a stop, or continue after a block (human) |
 | `/orgtomo:feedback [KEY] good\|bad <agent> <text>` | Record feedback as learning evidence (human) |
 | `/orgtomo:rule <agent> <rule>` | State a rule; it becomes a lesson at once (human) |
 | `/orgtomo:lessons [approve\|retire <L-id>]` | Lessons and recurring patterns |
 | `/orgtomo:models [<agent> <model> [effort]]` | Model and effort per agent |
 | `/orgtomo:features <name> on\|off` | Feature and support-agent switches (human) |
 | `/orgtomo:autonomy low\|medium\|high` | How often the team stops for approval (human) |
-| `/orgtomo:brain [status\|build\|sync\|drift\|search]` | Org Brain |
+| `/orgtomo:brain [status\|sync\|build\|drift\|search\|object]` | Org Brain |
+| `/orgtomo:discover [<org>\|status\|answer <org> <Q id> <text>]` | Study how the business uses an org; answering a question is a human action |
 | `/orgtomo:meetings [sync\|confirm <M-id>\|reject <M-id>]` | Meeting notes and ticket links |
 | `/orgtomo:people [set ...\|confirm <P-id>\|remove <Name>]` | Reader profiles |
 | `/orgtomo:restore <KEY>` | Put the ticket's backed-up versions back into the build org (human) |
@@ -38,8 +39,12 @@ Some actions are **human only**: approve, reject, hold, resume, answer, deployed
 | `orgtomo setup [folder]` | Create a workspace (asks questions; `--yes` takes defaults) |
 | `orgtomo start` | Open Claude Code with the Lead (`claude --agent tomo-lead`) |
 | `orgtomo ui [--port 4310]` | Local control panel |
-| `orgtomo doctor [--orgs]` | Health check |
+| `orgtomo doctor [--orgs]` | Health check; `--orgs` also contacts every org and runs one real retrieve from the build org |
 | `orgtomo human approve\|reject\|hold\|resume\|answer\|deployed\|feedback\|restore\|canary\|lesson\|model ...` | Human actions without Claude Code |
+| `orgtomo human org-changed <org>` | Confirm that an alias now points to a different org (refreshed sandbox, new login) |
+| `orgtomo human discover-answer <org> <Q id> <text>` | Answer a business discovery question |
+| `orgtomo models refresh` | Read the model list of your own account (needs `ANTHROPIC_API_KEY`) |
+| `orgtomo obsidian install` | Install Obsidian when a package manager can do it; otherwise say where to get it |
 
 ## Engine commands (agents)
 
@@ -48,7 +53,9 @@ Some actions are **human only**: approve, reject, hold, resume, answer, deployed
 | Command | Purpose |
 |---|---|
 | `orgtomo ticket open <KEY> [--lite]` | Create the ticket |
-| `orgtomo ticket import <KEY> --json '<ticket>'` | Store the tracker content (redacted) |
+| `orgtomo ticket import <KEY> --file -` | Store the tracker content (redacted). The ticket JSON comes on standard input; pass it in a quoted here-document (`<<'ORGTOMO_TICKET'`) so that quotes and backticks stay plain text. `--file <path>` and `--json '<text>'` also work. |
+| `orgtomo contract show <name>` | Every field of a contract: required or optional, allowed values |
+| `orgtomo block <KEY> --reason "<text>"` | Stop the ticket because a tool, a login or an org is broken. Not a failure; the human resumes it. |
 | `orgtomo next <KEY>` | What happens now, and who does it |
 | `orgtomo submit <KEY> <stage>` | Run the stage's gates on your output |
 | `orgtomo verify <KEY> <stage> --claim C1 --evidence E012 --result match\|mismatch [--note ...]` | The Lead's re-check |
@@ -67,6 +74,7 @@ Some actions are **human only**: approve, reject, hold, resume, answer, deployed
 | `orgtomo org apex-run <org> --file <f> [--ticket KEY]` | Anonymous Apex after data guard and e-mail gate |
 | `orgtomo org test <org> --class <C> [--test <C.m>] [--ticket KEY]` | Run named Apex tests |
 | `orgtomo org canary <org>` | Can this sandbox send e-mail right now |
+| `orgtomo browser status` / `orgtomo browser login <org>` | How the agent browser signs in; ask for a fresh sign-in on the next page of that org |
 
 ### Evidence
 
@@ -79,7 +87,11 @@ Some actions are **human only**: approve, reject, hold, resume, answer, deployed
 
 ### Org Brain
 
-`orgtomo brain retrieve <org>`, `build <org>`, `status [org]`, `search <org> <words>`, `fact <org> <Type:Name>`, `drift <base> <other>`, `pack <KEY> [words]`.
+`orgtomo brain sync <org>` (retrieve, then build), `retrieve <org>`, `build <org>`, `status [org]`, `search <org> <words>`, `fact <org> <Type:Name>`, `object <org> <Object>`, `tests <org> <Type:Name> ...`, `drift <base> <other>`, `pack <KEY> [words]`.
+
+### Business discovery
+
+`orgtomo discover run <org> [--retrieve] [--no-counts]` builds the areas, their pages and the questions. `discover status [org]`, `discover next <org>` (the next area to write a process note for), `discover check <org> <area>` (every statement linked or marked).
 
 ### Handoff
 
@@ -89,8 +101,10 @@ Some actions are **human only**: approve, reject, hold, resume, answer, deployed
 
 `orgtomo learn list | patterns | observations [KEY] | propose <KEY>`  
 `orgtomo people list | show <Name> | brief <Name> ... | propose --person <Name> --note <text> --basis <where>`  
-`orgtomo meetings plan | list | pending | ingest --file <contract.json>`
+`orgtomo meetings plan | list | pending | ingest --file <contract.json>` (`--file -` reads standard input)
 
 ### Other
 
-`orgtomo sync`, `orgtomo config show`, `orgtomo models`, `orgtomo version`.
+`orgtomo sync`, `orgtomo config show`, `orgtomo models`, `orgtomo models catalogue`, `orgtomo obsidian status`, `orgtomo version`.
+
+A command that fails prints one line of JSON with `error` and `code`. Set `ORGTOMO_DEBUG=1` to see a stack trace for an internal error.

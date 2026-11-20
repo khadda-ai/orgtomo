@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { makeWorkspace, writeOut, cleanup } from './helpers.mjs';
+import { makeWorkspace, writeOut, cleanup, intakeOf } from './helpers.mjs';
 import { createHandler } from '../engine/lib/ui-server.js';
 import * as T from '../engine/lib/ticket.js';
 import * as B from '../engine/lib/brain.js';
@@ -35,7 +35,7 @@ test('control panel API', async () => {
     T.openTicket(root, cfg, { key: 'UI-1' });
     T.importTicket(root, cfg, 'UI-1', { title: 'UI ticket', type: 'feature', description: 'd', acceptance_criteria: [{ id: 'AC1', text: 'works' }], source: { tool: 'test', fetched_at: '2026-11-19T10:00:00Z' } });
     const e = addEvidence(root, 'UI-1', { kind: 'brain', org: 'dev', actor: 'analyst', summary: 'f', payload: {} }).id;
-    writeOut(ws, 'UI-1', '01-understanding', { key: 'UI-1', summary_plain: 'A plain explanation that is long enough to be accepted by the contract.', summary_technical: 'A technical explanation that is long enough to be accepted by the contract.', acceptance_criteria: [{ id: 'AC1', text: 'works', source: 'ticket' }], examples: [{ title: 't', given: 'g', when: 'w', then: 't' }], affected: [{ component: 'ApexClass:CaseService', why: 'w', proof: [e] }], open_questions: [], risk: 'low', lite_candidate: false, claims: [{ id: 'C1', text: 'CaseService exists in the build org.', proof: [e] }] });
+    writeOut(ws, 'UI-1', '01-understanding', { key: 'UI-1', intake: intakeOf(e), summary_plain: 'A plain explanation that is long enough to be accepted by the contract.', summary_technical: 'A technical explanation that is long enough to be accepted by the contract.', acceptance_criteria: [{ id: 'AC1', text: 'works', source: 'ticket' }], examples: [{ title: 't', given: 'g', when: 'w', then: 't' }], affected: [{ component: 'ApexClass:CaseService', why: 'w', proof: [e] }], open_questions: [], risk: 'low', lite_candidate: false, claims: [{ id: 'C1', text: 'CaseService exists in the build org.', proof: [e] }] });
     T.submit(root, cfg, 'UI-1', 'understand', { actor: 'analyst' });
     T.leadVerify(root, cfg, 'UI-1', 'understand', { claim: 'C1', evidence: addEvidence(root, 'UI-1', { kind: 'brain', org: 'dev', actor: 'lead', summary: 'r', payload: {} }).id, result: 'match', actor: 'lead' });
 

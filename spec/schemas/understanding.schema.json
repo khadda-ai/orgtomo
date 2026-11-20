@@ -1,23 +1,336 @@
 {
-  "$id": "understanding", "title": "Analyst output", "type": "object",
-  "required": ["key", "summary_plain", "summary_technical", "acceptance_criteria", "examples", "affected", "open_questions", "risk", "lite_candidate", "claims"],
+  "$id": "understanding",
+  "title": "Analyst output",
+  "type": "object",
+  "required": [
+    "key",
+    "summary_plain",
+    "summary_technical",
+    "acceptance_criteria",
+    "examples",
+    "affected",
+    "open_questions",
+    "risk",
+    "lite_candidate",
+    "claims"
+  ],
   "additionalProperties": false,
   "properties": {
-    "key": { "$ref": "_defs#/$defs/ticketKey" },
-    "summary_plain": { "type": "string", "minLength": 40 },
-    "summary_technical": { "type": "string", "minLength": 40 },
-    "acceptance_criteria": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["id", "text", "source"], "additionalProperties": false,
-      "properties": { "id": { "$ref": "_defs#/$defs/acId" }, "text": { "type": "string", "minLength": 3 }, "source": { "enum": ["ticket", "derived", "meeting", "human"] } } } },
-    "examples": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["title", "given", "when", "then"], "additionalProperties": false,
-      "properties": { "title": { "type": "string" }, "given": { "type": "string" }, "when": { "type": "string" }, "then": { "type": "string" } } } },
-    "affected": { "type": "array", "items": { "type": "object", "required": ["component", "why", "proof"], "additionalProperties": false,
-      "properties": { "component": { "$ref": "_defs#/$defs/componentRef" }, "why": { "type": "string" }, "proof": { "$ref": "_defs#/$defs/proof" } } } },
-    "open_questions": { "type": "array", "items": { "type": "object", "required": ["id", "text", "blocking"], "additionalProperties": false,
-      "properties": { "id": { "type": "string" }, "text": { "type": "string" }, "blocking": { "type": "boolean" }, "answer": { "type": "string" } } } },
-    "risk": { "enum": ["low", "medium", "high"] },
-    "lite_candidate": { "type": "boolean" },
-    "diagram": { "type": "string" },
-    "meeting_updates_used": { "type": "array", "items": { "type": "string" } },
-    "claims": { "$ref": "_defs#/$defs/claims" }
+    "key": {
+      "$ref": "_defs#/$defs/ticketKey"
+    },
+    "summary_plain": {
+      "type": "string",
+      "minLength": 40
+    },
+    "summary_technical": {
+      "type": "string",
+      "minLength": 40
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "text",
+          "source"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "_defs#/$defs/acId"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 3
+          },
+          "source": {
+            "enum": [
+              "ticket",
+              "derived",
+              "meeting",
+              "human"
+            ]
+          }
+        }
+      }
+    },
+    "examples": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "title",
+          "given",
+          "when",
+          "then"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "given": {
+            "type": "string"
+          },
+          "when": {
+            "type": "string"
+          },
+          "then": {
+            "type": "string"
+          },
+          "input": {
+            "type": "string"
+          },
+          "today": {
+            "type": "string"
+          },
+          "expected": {
+            "type": "string"
+          },
+          "covers": {
+            "type": "array",
+            "items": {
+              "$ref": "_defs#/$defs/acId"
+            }
+          }
+        }
+      }
+    },
+    "affected": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "component",
+          "why",
+          "proof"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "component": {
+            "$ref": "_defs#/$defs/componentRef"
+          },
+          "why": {
+            "type": "string"
+          },
+          "proof": {
+            "$ref": "_defs#/$defs/proof"
+          }
+        }
+      }
+    },
+    "open_questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "text",
+          "blocking"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "blocking": {
+            "type": "boolean"
+          },
+          "answer": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "risk": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "lite_candidate": {
+      "type": "boolean"
+    },
+    "diagram": {
+      "type": "string"
+    },
+    "meeting_updates_used": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "claims": {
+      "$ref": "_defs#/$defs/claims"
+    },
+    "one_line": {
+      "type": "string"
+    },
+    "today": {
+      "type": "string"
+    },
+    "wanted": {
+      "type": "string"
+    },
+    "self_review": {
+      "$ref": "_defs#/$defs/selfReview"
+    },
+    "intake": {
+      "type": "object",
+      "required": [
+        "restated",
+        "identifiers",
+        "key_assumption"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "restated": {
+          "type": "object",
+          "required": [
+            "observed",
+            "expected",
+            "change_target"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "observed": {
+              "type": "string",
+              "minLength": 5
+            },
+            "expected": {
+              "type": "string",
+              "minLength": 5
+            },
+            "change_target": {
+              "type": "string",
+              "minLength": 3
+            }
+          }
+        },
+        "identifiers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "kind",
+              "orgs",
+              "proof"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "type": "string"
+              },
+              "orgs": {
+                "type": "object"
+              },
+              "note": {
+                "type": "string"
+              },
+              "proof": {
+                "$ref": "_defs#/$defs/evidenceIds"
+              }
+            }
+          }
+        },
+        "versions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "component",
+              "org",
+              "version"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "component": {
+                "type": "string"
+              },
+              "org": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "proof": {
+                "$ref": "_defs#/$defs/evidenceIds"
+              }
+            }
+          }
+        },
+        "size": {
+          "type": "object",
+          "required": [
+            "count",
+            "population",
+            "proof"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "count": {
+              "type": "number",
+              "minimum": 0
+            },
+            "population": {
+              "type": "string",
+              "minLength": 5
+            },
+            "org": {
+              "type": "string"
+            },
+            "proof": {
+              "$ref": "_defs#/$defs/evidenceIds"
+            },
+            "control": {
+              "$ref": "_defs#/$defs/evidenceIds"
+            }
+          }
+        },
+        "key_assumption": {
+          "type": "object",
+          "required": [
+            "text",
+            "held"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "text": {
+              "type": "string",
+              "minLength": 10
+            },
+            "held": {
+              "enum": [
+                true,
+                false,
+                "not_tested"
+              ]
+            },
+            "proof": {
+              "$ref": "_defs#/$defs/evidenceIds"
+            }
+          }
+        },
+        "already_satisfied": {
+          "type": "string"
+        },
+        "recommendation": {
+          "type": "string"
+        }
+      }
+    }
   }
 }

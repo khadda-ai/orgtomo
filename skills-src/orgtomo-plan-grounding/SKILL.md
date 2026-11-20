@@ -33,6 +33,8 @@ When the design relies on platform behaviour, find the official page and record 
 
 Each test has an id (T1, T2, ...) and lists the criteria it covers.
 
+`regression_tests` names the existing test classes to run before and after the change. Get them from `orgtomo brain tests <org> "<Type:Name>" ...`. If you leave a related class out, or need none, say why in `regression_note`. The gate refuses a plan that changes something tests touch and names no test.
+
 ## Also in the plan
 
 - `order`: deploy order of the components.
@@ -40,6 +42,8 @@ Each test has an id (T1, T2, ...) and lists the criteria it covers.
 - `risks` with mitigation. `out_of_scope` so nobody is surprised.
 - `rollback`: how to return to the backed-up state.
 - `alternatives_rejected`: one line each.
+- `data_changes`: any change to existing records in a target org: which org, what, which records, whether it can be undone. The deploy pack turns each into a kit the human runs (skill `orgtomo-ship`).
+- `self_review`: where else the same pattern exists, whether today's behaviour is deliberate, what you dropped while checking (skill `orgtomo-self-review`).
 
 ## Second round
 

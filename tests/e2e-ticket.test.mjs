@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { makeWorkspace, writeOut, copyDir, cleanup } from './helpers.mjs';
+import { makeWorkspace, writeOut, copyDir, cleanup, intakeOf, SELF_REVIEW } from './helpers.mjs';
 import * as T from '../engine/lib/ticket.js';
 import * as O from '../engine/lib/org.js';
 import * as B from '../engine/lib/brain.js';
@@ -43,7 +43,7 @@ test('a bug ticket runs from open to done', () => {
       acceptance_criteria: [{ id: 'AC1', text: 'Only High priority cases get reason Auto.', source: 'ticket' }],
       examples: [{ title: 'Medium case', given: 'a Medium priority case', when: 'it is saved', then: 'the reason stays empty' }],
       affected: [{ component: 'ApexClass:CaseService', why: 'holds the escalation rule', proof: [e1.evidence] }],
-      open_questions: [], risk: 'medium', lite_candidate: false,
+      open_questions: [], risk: 'medium', lite_candidate: false, intake: intakeOf(e1.evidence),
       claims: [{ id: 'C1', text: 'The Case object in dev has cases with a Subject and a status.', proof: [e1.evidence] }],
     };
     writeOut(ws, KEY, '01-understanding', understanding);
@@ -80,7 +80,7 @@ test('a bug ticket runs from open to done', () => {
       order: ['ApexClass:CaseService', 'ApexClass:CaseServiceTest'],
       tests: [{ id: 'T1', covers: ['AC1'], kind: 'apex', description: 'Medium case keeps an empty reason; High case gets Auto' }],
       manual_steps: [], risks: [{ text: 'Other callers of applyEscalation', mitigation: 'Brain shows only CaseTrigger and one flow action' }],
-      rollback: 'Redeploy the backed up CaseService and CaseServiceTest.', claims: [{ id: 'C1', text: 'CaseService exists in dev and is used by CaseTrigger.', proof: [fact.id] }],
+      rollback: 'Redeploy the backed up CaseService and CaseServiceTest.', regression_tests: ['CaseServiceTest'], self_review: SELF_REVIEW, claims: [{ id: 'C1', text: 'CaseService exists in dev and is used by CaseTrigger.', proof: [fact.id] }],
     });
     r = T.submit(root, cfg, KEY, 'plan', { actor: 'planner' });
     assert.equal(r.passed, true, JSON.stringify(r.failed));
@@ -133,7 +133,7 @@ test('a bug ticket runs from open to done', () => {
     assert.throws(() => buildPack(root, cfg, KEY), /not in handoff/);
     writeOut(ws, KEY, '06-review', {
       key: KEY, verdict: 'approve',
-      rubric: ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'R11'].map((id) => ({ id, result: 'pass', proof: [tr.evidence] })),
+      rubric: ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'R11', 'R12'].map((id) => ({ id, result: 'pass', proof: [tr.evidence] })),
       findings: [], claims: [{ id: 'C1', text: 'The change is limited to the two planned classes.', proof: [dep.evidence] }],
     });
     r = T.submit(root, cfg, KEY, 'review', { actor: 'reviewer' });

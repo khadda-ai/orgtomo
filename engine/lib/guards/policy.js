@@ -1,10 +1,12 @@
 // Policy guard for shell commands. Decides allow or deny for one Bash call.
 // Rules are deny-by-default for anything that talks to Salesforce.
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { analyze, base, flag, flags, topic } from '../shell.js';
 import { orgByAlias, isProduction, canWriteData } from '../config.js';
-import { scanText, describeFindings } from './data.js';
+import { scanText, scanNew, describeFindings } from './data.js';
+import { checkWrite } from './write.js';
 import { emailGate } from '../canary.js';
 import { matchGlob, exists, readText } from '../util.js';
 
@@ -16,6 +18,7 @@ const SF_API_HOSTS = /https?:\/\/[^\s'"]*\.(salesforce\.com|force\.com|salesforc
 const HUMAN_VERBS = [
   ['human'], ['ui'], ['setup'], ['start'], ['config', 'set'], ['models', 'set'], ['features', 'set'], ['lessons', 'approve'], ['lessons', 'retire'],
   ['people', 'set'], ['people', 'confirm'], ['people', 'remove'], ['meetings', 'confirm'], ['meetings', 'reject'], ['org', 'restore'], ['style', 'set'],
+  ['models', 'refresh'], ['obsidian'], ['discover', 'answer'],
 ];
 
 const deny = (reason) => ({ decision: 'deny', reason });
@@ -29,10 +32,13 @@ const allow = (extra = {}) => ({ decision: 'allow', ...extra });
 export function checkBash(command, ctx) {
   const { cfg, root, agent } = ctx;
   const a = analyze(command);
-  const mentionsSf = /(^|[\s;&|("'`/])(sf|sfdx)(\s|$)/.test(command);
+  // Here-document bodies are input, not commands: they are judged apart from the command line.
+  const mentionsSf = /(^|[\s;&|("'`/])(sf|sfdx)(\s|$)/.test(a.text);
   if (a.problems.length && mentionsSf) return deny(`The command could not be parsed safely (${a.problems[0]}). Write the sf command plainly.`);
   if (a.dynamic && mentionsSf) return deny('Salesforce CLI commands may not be built with eval, backticks, $(...) or piped into a shell. Write the command and the org alias literally.');
-  if (a.dynamic && /\borgtomo\b/.test(command)) return deny('orgtomo commands may not be wrapped in eval, backticks or $(...).');
+  if (a.dynamic && /\borgtomo\b/.test(a.text)) return deny('orgtomo commands may not be wrapped in eval, backticks or $(...). To pass text that contains such characters, use a quoted here-document: <<\'EOF\'.');
+  const fedByHeredoc = a.heredocs.length && a.segments.some((seg) => INTERPRETERS.has(base(seg.argv[0])) || ['bash', 'sh', 'zsh', 'dash', 'ksh'].includes(base(seg.argv[0])));
+  if (fedByHeredoc && a.heredocs.some((h) => TALKS_TO_SALESFORCE.test(h.body))) return deny('A script passed on standard input may not call Salesforce. Use the orgtomo org commands.');
 
   for (const file of a.scripts || []) {
     const r = checkScriptFile(file, root, ctx);
@@ -40,9 +46,11 @@ export function checkBash(command, ctx) {
   }
 
   let usesOrgtomo = false;
+  let cwd = ctx.cwd || root;
   for (const seg of a.segments) {
     const name = base(seg.argv[0]);
     if (!name) continue;
+    if (name === 'cd' && seg.argv[1] && !/^[-~$]/.test(seg.argv[1])) cwd = path.resolve(cwd, seg.argv[1]);
     if ('ORGTOMO_ACTOR' in seg.env || 'ORGTOMO_HUMAN' in seg.env || 'ORGTOMO_GUARDS' in seg.env || 'ORGTOMO_SF_BIN' in seg.env) {
       return deny('Orgtomo identity and guard variables are set by the engine, never by a command.');
     }
@@ -98,8 +106,33 @@ export function checkBash(command, ctx) {
     if (agent === 'lead' && !READ_ONLY.has(name)) {
       return deny(`The Lead delegates and verifies; it does not run "${name}". Use orgtomo commands or read-only shell commands, and hand work to the right agent.`);
     }
+    // A shell command that writes a file is held to the same ownership rules as the Write tool.
+    const inside = writeTargets(seg).map((t) => path.resolve(cwd, t.replace(/^~(?=\/|$)/, os.homedir()))).filter((abs) => { const r = path.relative(root, abs); return r && !r.startsWith('..') && !path.isAbsolute(r); });
+    for (const abs of inside) {
+      const w = checkWrite(abs, ctx);
+      if (w.decision === 'deny') return deny(`${w.reason} (blocked: "${name}" writing ${path.relative(root, abs)}).`);
+    }
+    if (inside.length) {
+      const existing = inside.filter((f) => exists(f) && fs.statSync(f).isFile() && fs.statSync(f).size < 2_000_000).map((f) => readText(f)).join('\n');
+      const hits = scanNew([seg.raw, ...a.heredocs.map((h) => h.body)].join('\n'), existing, cfg.safety);
+      if (hits.length) return deny(`Data guard: ${describeFindings(hits)}`);
+    }
   }
   return allow({ orgtomo: usesOrgtomo });
+}
+
+const TALKS_TO_SALESFORCE = /\b(sf|sfdx)\s+(data|org|project|apex|api)\b|jsforce|simple_salesforce|\.salesforce\.com/;
+
+/** Paths a simple command writes to: redirects, and the targets of the usual file commands. */
+function writeTargets(seg) {
+  const name = base(seg.argv[0]);
+  const args = seg.argv.slice(1).filter((t) => t && !t.startsWith('-'));
+  const out = [...seg.redirects];
+  if (['tee', 'touch', 'truncate', 'rm', 'rmdir', 'mv'].includes(name)) out.push(...args);
+  else if (['cp', 'install', 'rsync', 'ln'].includes(name) && args.length > 1) out.push(args.at(-1));
+  else if ((name === 'sed' || name === 'perl') && seg.argv.some((t) => /^-[a-zA-Z]*i/.test(t) || t === '--in-place')) out.push(...args.slice(1));
+  else if (name === 'dd') out.push(...seg.argv.filter((t) => t.startsWith('of=')).map((t) => t.slice(3)));
+  return out.filter((t) => t && !/^&?\d+$/.test(t) && !t.startsWith('/dev/'));
 }
 
 const officialDoc = (text, cfg) => (cfg.safety.official_doc_hosts || []).some((h) => text.includes(`//${h}/`) || text.includes(`//${h} `) || text.endsWith(`//${h}`));
@@ -126,7 +159,7 @@ function checkScriptFile(file, root, ctx) {
     const r = checkBash(text.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n'), ctx);
     return r.decision === 'deny' ? deny(`Script ${file}: ${r.reason}`) : null;
   }
-  if (/\b(sf|sfdx)\s+(data|org|project|apex|api)\b|jsforce|simple_salesforce|\.salesforce\.com/.test(text)) {
+  if (TALKS_TO_SALESFORCE.test(text)) {
     return deny(`Script ${file} talks to Salesforce directly. Scripts may not do that; use the orgtomo org commands.`);
   }
   return null;
