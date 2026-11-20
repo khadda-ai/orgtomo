@@ -8,9 +8,9 @@ export const readText = (p) => fs.readFileSync(p, 'utf8');
 export const readJson = (p, fallback) => {
   if (!exists(p)) {
     if (fallback !== undefined) return fallback;
-    throw new Error(`File not found: ${p}`);
+    throw new OrgtomoError(`File not found: ${p}`, 'NOT_FOUND');
   }
-  return JSON.parse(readText(p));
+  try { return JSON.parse(readText(p)); } catch (e) { throw new OrgtomoError(`${p} is not valid JSON: ${e.message}`, 'BAD_JSON'); }
 };
 export function writeText(p, text) {
   fs.mkdirSync(path.dirname(p), { recursive: true });
@@ -22,6 +22,9 @@ export function appendLine(p, line) {
   fs.appendFileSync(p, line.endsWith('\n') ? line : line + '\n');
 }
 export const readJsonl = (p) => (exists(p) ? readText(p).split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
+
+/** Folders inside a source mirror that never hold org metadata. */
+export const SOURCE_IGNORE = ['node_modules', '.git', '.sf', '.sfdx', '.orgtomo-tmp'];
 
 /** Recursively list files under dir (relative paths, forward slashes). */
 export function listFiles(dir, { ignore = ['node_modules', '.git'] } = {}) {

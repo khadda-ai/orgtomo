@@ -5,11 +5,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { validateContract } from './schema.js';
 import { scanText, describeFindings } from './guards/data.js';
-import { exists, readText, readJson, listFiles, sha256File, matchGlob } from './util.js';
+import { exists, readText, readJson, listFiles, sha256File, matchGlob, SOURCE_IGNORE } from './util.js';
 import { parseRef, refFromPath } from './metadata.js';
 import { parseXml, kids, val } from './xml.js';
-import { buildOrg, isProduction, org as getOrg, loadSpec } from './config.js';
+import { buildOrg, isProduction, org as getOrg, loadSpec, sameModel } from './config.js';
 import { listObservations } from './learning.js';
+import { newFindings } from './backups.js';
+import { testsFor } from './brain.js';
 import { layout } from './paths.js';
 
 const pass = (details = []) => ({ ok: true, details });
@@ -18,7 +20,7 @@ const failG = (details, extra = {}) => ({ ok: false, details: [].concat(details)
 const HEDGES = /\b(probably|presumably|maybe|perhaps|might be|may be|should be fine|i (think|assume|guess|believe|suspect)|seems? to|appears? to|not sure|as far as i know|most likely|likely|i did not check|unverified|assum(e|ed|ing|ption))\b/i;
 
 /** Every string in a contract that sits under a key named proof / evidence / docs. */
-function collectProof(node, out = []) {
+export function collectProof(node, out = []) {
   if (Array.isArray(node)) node.forEach((n) => collectProof(n, out));
   else if (node && typeof node === 'object') {
     for (const [k, v] of Object.entries(node)) {
@@ -77,11 +79,60 @@ export const GATES = {
       const bad = c.proof.map((id) => ev(ctx, id)).filter((e) => e && e.ok === false);
       if (bad.length) problems.push(`claim ${c.id} cites failed evidence ${bad.map((e) => e.id).join(', ')}`);
     }
+    for (const c of ctx.contract.claims || []) {
+      const proofs = c.proof.map((id) => ev(ctx, id)).filter(Boolean);
+      // A query that found nothing proves nothing until the same kind of query is shown to find something.
+      const empty = proofs.filter((e) => e.kind === 'soql' && rowsOf(e) === 0);
+      if (empty.length && !proofs.some((e) => e.kind === 'soql' && rowsOf(e) > 0 && empty.some((z) => z.org === e.org))) {
+        problems.push(`claim ${c.id} rests on a query that returned no rows (${empty.map((e) => e.id).join(', ')}). Add a control to its proof: a query on the same org that does return rows, so that the zero is not just a filter that matches nothing.`);
+      }
+      if (c.basis === 'inferred' && !(c.confirm_by || '').trim()) problems.push(`claim ${c.id} is marked inferred: say in confirm_by what would confirm it`);
+      if (c.basis === 'carried' && !(c.source || '').trim()) problems.push(`claim ${c.id} is marked carried: say in source where the figure or statement comes from`);
+      if (c.basis === 'measured' && ctx.def.owner && !proofs.some((e) => e.actor === ctx.def.owner)) problems.push(`claim ${c.id} is marked measured, but none of its proof was produced by the ${ctx.def.owner} in this ticket. Measure it yourself or mark it carried.`);
+    }
     for (const t of texts(ctx.contract)) {
       const m = HEDGES.exec(t);
       if (m) problems.push(`guessing language ("${m[0]}") in: "${t.slice(Math.max(0, m.index - 30), m.index + 40).trim()}". State only what the evidence shows, or raise an open question.`);
     }
-    return problems.length ? failG(problems) : pass([`${new Set(collectProof(ctx.contract)).size} evidence reference(s) verified`]);
+    const notes = [`${new Set(collectProof(ctx.contract)).size} evidence reference(s) verified`];
+    const carried = (ctx.contract.claims || []).filter((c) => c.basis === 'carried').map((c) => c.id);
+    if (carried.length) notes.push(`carried forward, not re-measured: ${carried.join(', ')}`);
+    const loose = [...new Set(collectProof(ctx.contract))].map((id) => ev(ctx, id)).filter((e) => e && e.kind === 'doc' && e.meta?.quote_verified !== true);
+    if (loose.length) {
+      const text = `${loose.length} official-documentation quote(s) could not be confirmed by fetching the page (${loose.map((e) => e.id).join(', ')}); a human should open the links`;
+      if (ctx.cfg.safety.docs?.require_verified === true) problems.push(text);
+      else notes.push(text);
+    }
+    return problems.length ? failG(problems) : pass(notes);
+  },
+
+  intakeCheck(ctx) {
+    if (ctx.ticket.type === 'question') return pass(['not required for a question']);
+    const i = ctx.contract.intake;
+    if (!i) return failG('intake is missing. Check the ticket against the system before trusting it: restate it, confirm every name it uses, and test the one assumption it rests on (see the intake skill).');
+    const problems = [];
+    if (!i.identifiers.length) problems.push('intake.identifiers is empty: list every field, value, flow, class or setting the ticket names, each with proof');
+    for (const id of i.identifiers) {
+      if (!id.proof.length) problems.push(`identifier "${id.name}": no proof`);
+      else for (const e of id.proof) if (!ev(ctx, e)) problems.push(`identifier "${id.name}": ${e} is not in the evidence ledger`);
+      if (!Object.keys(id.orgs || {}).length) problems.push(`identifier "${id.name}": say in which org(s) it was checked and what was found`);
+    }
+    const a = i.key_assumption;
+    if (a.held !== 'not_tested' && !(a.proof || []).length) problems.push('key_assumption: name the evidence that tested it');
+    if (a.held === 'not_tested' && !(ctx.contract.open_questions || []).length) problems.push('key_assumption was not tested and no open question asks about it');
+    if (a.held === false && !(i.recommendation || '').trim()) problems.push('the key assumption does not hold: say in intake.recommendation what should be done instead');
+    if (i.size && Number(i.size.count) === 0 && !(i.size.control || []).length) problems.push('intake.size.count is 0: add a control query that returns rows, so that the zero means something');
+    return problems.length ? failG(problems) : pass([`${i.identifiers.length} identifier(s) confirmed`]);
+  },
+
+  selfReview(ctx) {
+    const r = ctx.contract.self_review;
+    if (!r) return failG('self_review is missing. Before handing over, try to break your own result and record what you checked (see the self-review skill).');
+    const problems = [];
+    if ((r.elsewhere || '').trim().length < 15) problems.push('self_review.elsewhere: say where else you looked for the same pattern and what you found');
+    if ((r.intent || '').trim().length < 15) problems.push("self_review.intent: say whether today's behaviour is deliberate, and what shows it");
+    if (!Array.isArray(r.withdrawn)) problems.push('self_review.withdrawn: list what you dropped while checking (an empty list is allowed, but say so on purpose)');
+    return problems.length ? failG(problems) : pass(r.withdrawn?.length ? [`${r.withdrawn.length} statement(s) withdrawn during self-review`] : []);
   },
 
   noBlockingQuestions(ctx) {
@@ -114,13 +165,15 @@ export const GATES = {
 
   dataSafe(ctx) {
     const files = [`${ctx.output}.md`, `${ctx.output}.json`].map((f) => path.join(ctx.dir, f)).filter(exists);
-    for (const c of ctx.contract?.components || []) files.push(...filesOf(ctx, c));
+    // Component files are compared with their backup: text that was already in the org is not this ticket's data.
+    const source = new Set();
+    for (const c of ctx.contract?.components || []) for (const f of filesOf(ctx, c)) { files.push(f); source.add(f); }
     const work = path.join(ctx.dir, 'work');
     if (exists(work)) files.push(...listFiles(work).map((f) => path.join(work, f)));
     const problems = [];
     for (const f of files) {
       if (fs.statSync(f).size > 2_000_000 || /\.(png|jpe?g|gif|pdf|zip)$/i.test(f)) continue;
-      const hits = scanText(readText(f), ctx.cfg.safety);
+      const hits = source.has(f) ? newFindings(ctx.root, ctx.cfg, ctx.key, f) : scanText(readText(f), ctx.cfg.safety);
       if (hits.length) problems.push(`${path.relative(ctx.root, f)}: ${describeFindings(hits)}`);
     }
     return problems.length ? failG(problems) : pass([`${files.length} file(s) scanned`]);
@@ -140,7 +193,15 @@ export const GATES = {
     for (const id of ctx.contract.docs || []) { const e = ev(ctx, id); if (e && e.kind !== 'doc') problems.push(`${id} is listed under docs but is ${e.kind} evidence`); }
     const unordered = ctx.contract.components.map((c) => c.ref).filter((r) => !ctx.contract.order.includes(r));
     if (unordered.length) problems.push(`order does not include: ${unordered.join(', ')}`);
-    return problems.length ? failG(problems) : pass();
+    // Regression: the plan names the existing tests to run before and after, so nobody has to guess later.
+    const touched = ctx.contract.components.filter((c) => c.change !== 'new').map((c) => c.ref);
+    const related = testsFor(ctx.root, ctx.cfg, index.org, touched).tests;
+    const listed = ctx.contract.regression_tests || [];
+    if (related.length && !listed.length && !(ctx.contract.regression_note || '').trim()) {
+      problems.push(`${related.length} existing test class(es) touch what this plan changes (orgtomo brain tests ${index.org} ${touched.map((t) => `"${t}"`).join(' ')}). List the ones to run before and after the change in regression_tests, or say in regression_note why none is needed.`);
+    }
+    for (const t of listed) if (!index.components[`ApexClass:${t}`]) problems.push(`regression_tests: ${t} is not an Apex class in the Org Brain of ${index.org}`);
+    return problems.length ? failG(problems) : pass(listed.length ? [`${listed.length} regression test class(es) named (${related.length} related in the Brain)`] : []);
   },
 
   planCoverage(ctx) {
@@ -352,7 +413,7 @@ export const GATES = {
     if (!build) return failG('04-build.json not found.');
     const problems = [];
     const src = path.join(ctx.root, ctx.cfg.pipeline.source_dir || 'source', buildOrg(ctx.cfg).name);
-    const all = exists(src) ? listFiles(src) : [];
+    const all = exists(src) ? listFiles(src, { ignore: SOURCE_IGNORE }) : [];
     for (const name of build.unit_tests_added) {
       const f = all.find((x) => x.endsWith(`/classes/${name}.cls`));
       if (!f) { problems.push(`test class ${name} not found in source`); continue; }
@@ -389,7 +450,7 @@ export const GATES = {
   reviewerIndependence(ctx) {
     const a = ctx.cfg.agents;
     if (!a.rules?.reviewer_differs_from_builder) return pass(['rule is off']);
-    return a.agents.reviewer.model !== a.agents.builder.model ? pass() : failG(`Reviewer and Builder both run on "${a.agents.builder.model}".`);
+    return !sameModel(a.agents.reviewer.model, a.agents.builder.model) ? pass() : failG(`Reviewer ("${a.agents.reviewer.model}") and Builder ("${a.agents.builder.model}") run on the same model.`);
   },
 
   commsSafe(ctx) {
@@ -406,6 +467,9 @@ export const GATES = {
     return problems.length ? failG(problems) : pass();
   },
 };
+
+/** Rows a query evidence item returned (older entries carry it only in the summary). */
+const rowsOf = (e) => (typeof e.meta?.total === 'number' ? e.meta.total : Number(/^(\d+) row/.exec(e.summary || '')?.[1] ?? NaN));
 
 /** Turn the change-line template from conventions.yaml into a RegExp for one ticket. */
 export function changeLineRegex(template, key) {

@@ -5,8 +5,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { layout } from './paths.js';
 import { loadSpec, loopMax, approvalStages, org as getOrg, isProduction, buildOrg } from './config.js';
-import { runGates } from './gates.js';
-import { listEvidence } from './evidence.js';
+import { runGates, collectProof } from './gates.js';
+import { listEvidence, readEvidencePayload } from './evidence.js';
+import { contextPack, packTerms } from './brain.js';
+import { renderStagePage } from './pages.js';
+import { describeContract } from './schema.js';
 import { observe } from './learning.js';
 import { validateContract } from './schema.js';
 import { redactInside } from './mask.js';
@@ -87,13 +90,16 @@ export function next(root, cfg, key) {
   const dirRel = `vault/tickets/${key}`;
   if (t.status === 'done') return { ...base, do: [], say: 'This ticket is done.' };
   if (t.status === 'hold') return { ...base, do: [{ who: 'human', action: `/orgtomo:resume ${key}` }], say: 'On hold. Nothing runs until the human resumes it.' };
+  if (t.status === 'blocked') {
+    return { ...base, awaiting: 'blocked', do: [{ who: 'human', action: `/orgtomo:resume ${key} <what you fixed>` }], say: `Blocked: ${t.await?.reason || 'no reason recorded'} Nothing runs until the human resumes the ticket. Tell the human exactly this reason and stop. Do not retry and do not work around it.` };
+  }
   if (t.status === 'escalated') {
     return { ...base, do: [{ who: 'human', action: `/orgtomo:resume ${key} <what to do differently>` }], say: `Stopped after ${t.loops} loop(s). Read ${dirRel}/escalation.md to the human in full. Do not continue on your own.` };
   }
   if (t.status === 'awaiting_human') {
     const a = t.await || {};
     const map = {
-      approval: { action: `/orgtomo:approve ${key}  or  /orgtomo:reject ${key} <reason>`, say: `Stage "${a.stage}" passed its gates and waits for the human's approval. Summarise ${dirRel}/${stageDef(root, a.stage).output}.md for the human, then stop.` },
+      approval: { action: `/orgtomo:approve ${key}  or  /orgtomo:reject ${key} <reason>`, say: `Stage "${a.stage}" passed its gates and waits for the human's approval. Summarise ${dirRel}/${a.stage ? stageDef(root, a.stage).output : ''}.md for the human, then stop.${unverifiedDocsNote(root, key, a.stage)}` },
       question: { action: `/orgtomo:answer ${key} <question id> <answer>`, say: `The Analyst has blocking questions. Ask the human exactly these, then stop: ${(a.details || []).join(' | ')}` },
       not_reproduced: { action: `/orgtomo:answer ${key} repro <more detail or decision>`, say: 'The bug could not be reproduced. Tell the human what was tried (02-repro.md) and ask for more detail. Do not plan a fix for something that was not reproduced.' },
       deploy: { action: `/orgtomo:deployed ${a.org} ${key}`, say: a.problem ? `The parity check on ${a.org} failed: ${a.problem}. Show the human the parity report; they fix the deploy and confirm again.` : `Deploy pack for ${a.org} is ready at ${dirRel}/07-deploy-pack/${a.org}/. The human deploys with their tool and then confirms. Orgtomo does not deploy to ${a.org}.` },
@@ -102,7 +108,16 @@ export function next(root, cfg, key) {
     return { ...base, awaiting: a.kind, do: [{ who: 'human', action: m.action }], say: m.say };
   }
   if (t.stage === 'open') {
-    return { ...base, do: [{ who: 'lead', action: `Read ${key} with your tracker tools, then run: orgtomo ticket import ${key} --json '<ticket contract JSON>'`, contract: 'ticket' }], say: 'Import the ticket exactly as written. Do not add or interpret.' };
+    return {
+      ...base,
+      do: [{
+        who: 'lead',
+        action: `Read ${key} with your tracker tools, then pass the ticket contract as JSON on standard input, inside a quoted here-document so that quotes and backticks in the text stay plain text:\norgtomo ticket import ${key} --file - <<'ORGTOMO_TICKET'\n{ ...the ticket contract... }\nORGTOMO_TICKET`,
+        contract: 'ticket',
+        contract_shape: describeContract('ticket'),
+      }],
+      say: 'Import the ticket exactly as written. Do not add or interpret. Every required field of the contract must be present; "source" says which tool the ticket was read with and when.',
+    };
   }
   if (t.stage === 'handoff') return { ...base, ...nextHandoff(root, cfg, t) };
 
@@ -121,7 +136,13 @@ export function next(root, cfg, key) {
   }
   for (const b of def.before || []) {
     if (!agentOn(cfg, b)) continue;
-    if (b === 'baseline' && !validBaseline(root, key)) steps.push({ who: 'baseline', action: 'spawn', outputs: [`${dirRel}/00-baseline.md`, `${dirRel}/00-baseline.json`], then: `orgtomo baseline check ${key}` });
+    if (b !== 'baseline') continue;
+    const state = baselineState(root, key);
+    if (state.status === 'failed') {
+      // A backup that could not be taken is a tool problem, not something another attempt by an agent can fix.
+      return { ...base, do: [{ who: 'lead', action: `orgtomo block ${key} --reason "Backup failed for ${state.failed.join(', ')}. The Builder cannot start without a backup."` }], say: 'The Baseline could not back up every component. Block the ticket so the human sees why; do not spawn the Builder.' };
+    }
+    if (state.status !== 'ok') steps.push({ who: 'baseline', action: 'spawn', outputs: [`${dirRel}/00-baseline.md`, `${dirRel}/00-baseline.json`], then: `orgtomo baseline check ${key}` });
   }
   if (!agentOn(cfg, def.owner)) steps.push({ who: 'lead', action: `orgtomo submit ${key} ${t.stage}`, note: `${def.owner} is switched off; this stage is skipped.` });
   else {
@@ -140,9 +161,36 @@ function inputsFor(root, key) {
   const dir = layout(root).ticketDir(key);
   return listFiles(dir).filter((f) => /^(0\d-[a-z-]+\.(md|json)|updates\.md|context-pack\.md|verify-[a-z]+\.md)$/.test(f)).map((f) => `vault/tickets/${key}/${f}`);
 }
-const validBaseline = (root, key) => {
+/** Where the baseline of a ticket stands: missing, invalid, failed (a backup could not be taken) or ok. */
+export function baselineState(root, key) {
   const c = readContract(root, key, '00-baseline');
-  return Boolean(c) && !c.__invalid_json && validateContract(c, 'baseline').length === 0;
+  if (!c) return { status: 'missing' };
+  if (c.__invalid_json || validateContract(c, 'baseline').length) return { status: 'invalid' };
+  const failed = c.backups.filter((b) => b.status === 'failed').map((b) => b.ref);
+  return failed.length ? { status: 'failed', failed } : { status: 'ok' };
+}
+
+/** Official-doc evidence cited by a stage whose quote the engine could not find on the page. */
+export function unverifiedDocs(root, key, stageId) {
+  if (!stageId) return [];
+  const def = stagesOf(root).find((s) => s.id === stageId);
+  const c = def?.output && readContract(root, key, def.output);
+  if (!c || c.__invalid_json) return [];
+  const ledger = listEvidence(root, key);
+  const out = [];
+  for (const id of new Set(collectProof(c))) {
+    const e = ledger.find((x) => x.id === id);
+    if (!e || e.kind !== 'doc') continue;
+    let verified = e.meta?.quote_verified;
+    let url = e.command;
+    if (verified === undefined) { try { const p = readEvidencePayload(root, key, id).payload || {}; verified = p.quote_verified; url = p.url || url; } catch { /* payload missing */ } }
+    if (verified !== true) out.push({ id, url });
+  }
+  return out;
+}
+const unverifiedDocsNote = (root, key, stageId) => {
+  const list = unverifiedDocs(root, key, stageId);
+  return list.length ? ` Tell the human that the engine could not confirm ${list.length} official-documentation quote(s) by fetching the page, and list the links so they can open them: ${list.map((d) => `${d.id} ${d.url}`).join(' ; ')}` : '';
 };
 
 // ------------------------------------------------------------------ submit
@@ -208,6 +256,7 @@ export function submit(root, cfg, key, stageId, { actor } = {}) {
     return { passed: false, failed, next: `Gates failed. Fix exactly what vault/tickets/${key}/verify-${stageId}.md lists, then submit again (attempt ${st.attempts + 1} of ${max}).` };
   }
   if (st.attempts === 1) observe(root, { ticket: key, stage: stageId, agent: def.owner, kind: 'good', source: 'gate', signature: `first-pass:${stageId}`, fact: `All ${results.length} gates of ${stageId} passed on the first attempt.` });
+  try { renderStagePage(root, cfg, key, stageId); } catch { /* the page is a convenience; the contract is the record */ }
   if (stageId === 'review') {
     for (const f of (ctx.contract.findings || []).filter((x) => x.severity !== 'minor')) {
       observe(root, { ticket: key, stage: 'review', agent: cfg.agents.agents[f.agent] ? f.agent : 'builder', kind: 'mistake', source: 'reviewer', signature: `review:${f.severity}`, fact: `Reviewer finding (${f.severity})${f.component ? ` on ${f.component}` : ''}: ${f.text}`, evidence: f.proof });
@@ -291,7 +340,14 @@ function finishStage(root, cfg, t, def) {
     save(root, t, { event: 'loop', from: def.id, to: def.on_verdict.goto, loop: t.loops });
     return { passed: true, verdict: 'fail', loop: t.loops, next: `Back to ${def.on_verdict.goto} (loop ${t.loops} of ${loopMax(cfg)}): orgtomo next ${key}` };
   }
-  if (def.id === 'understand') decidePath(root, cfg, t);
+  if (def.id === 'understand') {
+    decidePath(root, cfg, t);
+    // The first pack was built from the ticket text alone. Now the Analyst has named the components: rebuild it around them.
+    try {
+      const u = readContract(root, key, '01-understanding');
+      contextPack(root, cfg, key, { terms: packTerms(readContract(root, key, '00-ticket') || {}), refs: (u?.affected || []).map((a) => a.component) });
+    } catch { /* no Brain yet: the pack stays as it is */ }
+  }
   const ids = stagesOf(root).map((s) => s.id);
   t.stage = ids[ids.indexOf(def.id) + 1];
   if (t.stage === 'handoff') return enterHandoff(root, cfg, t);
@@ -371,8 +427,10 @@ export function recordParity(root, cfg, key, result) {
     return { ok: false, next: `Stop. Show the human the differences; they redeploy and run /orgtomo:deployed ${target.org} ${key} again.` };
   }
   target.parity = result.evidence;
-  if (target.retest) { target.status = 'parity_ok'; save(root, t, { event: 'parity_ok', org: target.org }); return { ok: true, next: `orgtomo next ${key}` }; }
-  return { ok: true, ...advanceTarget(root, cfg, t) };
+  const tell = result.warnings?.length ? ` Tell the human first: ${result.warnings.join(' ')}` : '';
+  if (target.retest) { target.status = 'parity_ok'; save(root, t, { event: 'parity_ok', org: target.org }); return { ok: true, next: `orgtomo next ${key}${tell}` }; }
+  const moved = advanceTarget(root, cfg, t);
+  return { ok: true, ...moved, next: `${moved.next}${tell}` };
 }
 
 function advanceTarget(root, cfg, t) {
@@ -401,6 +459,47 @@ function submitRetest(root, cfg, t, { actor }) {
     return { passed: true, verdict: 'fail', escalated: true, next: `Stop. Read vault/tickets/${t.key}/escalation.md to the human.` };
   }
   return { passed: true, ...advanceTarget(root, cfg, t) };
+}
+
+// ------------------------------------------------------------------ blocked
+
+/**
+ * Stop a ticket because something outside the team's control is broken: a
+ * tool, a login, an org that does not answer. Blocked is not a failure of an
+ * agent; it does not count as an attempt and nothing pushes the team on.
+ */
+export function block(root, cfg, key, { reason, actor = null, source = 'agent' } = {}) {
+  const t = loadTicket(root, key);
+  if (!String(reason || '').trim() || String(reason).trim().length < 15) fail('Give the reason: what failed, with the exact message, and what would fix it.');
+  if (['done', 'blocked'].includes(t.status)) fail(`Ticket ${key} is ${t.status}.`);
+  const text = redactInside(String(reason).trim(), cfg.safety);
+  t.blocked = { status: t.status, await: t.await };
+  t.status = 'blocked';
+  t.await = { kind: 'blocked', stage: t.stage, reason: text, by: actor || source, since: nowIso() };
+  appendLine(path.join(layout(root).ticketDir(key), 'updates.md'), `\n## ${nowIso().slice(0, 16)} blocked at ${t.stage}\n\n${text}\n`);
+  observe(root, { ticket: key, stage: t.stage, agent: 'lead', kind: 'feedback', source: 'engine', signature: `blocked:${t.stage}`, fact: `Ticket blocked at ${t.stage}: ${text}` });
+  save(root, t, { event: 'blocked', stage: t.stage, by: actor || source });
+  return { blocked: true, reason: text, next: `Stop. Tell the human the reason. They continue with /orgtomo:resume ${key} <what they fixed>.` };
+}
+
+/**
+ * Count failures of an engine command that are not the agent's doing (the CLI
+ * broke, the org did not answer). The second one in a row blocks the ticket.
+ */
+export function noteToolFailure(root, cfg, key, label, error) {
+  const t = loadTicket(root, key);
+  if (t.status !== 'running') return null;
+  const n = ((t.tool_failures ||= {})[label] || 0) + 1;
+  t.tool_failures[label] = n;
+  writeJson(layout(root).ticketState(key), t);
+  if (n < 2) return null;
+  return block(root, cfg, key, { reason: `"${label}" failed ${n} times in a row: ${String(error.message || error).slice(0, 400)}`, source: 'engine' });
+}
+export function noteToolSuccess(root, key, label) {
+  const f = layout(root).ticketState(key);
+  if (!exists(f)) return;
+  const t = readJson(f);
+  if (t.tool_failures?.[label]) { delete t.tool_failures[label]; writeJson(f, t); }
 }
 
 // ------------------------------------------------------------------ human
@@ -450,6 +549,13 @@ export const human = {
     if (t.status === 'hold') {
       t.status = t.held?.status || 'running'; t.await = t.held?.await || null; delete t.held;
       save(root, t, { event: 'resumed' });
+      return { resumed: true, next: `orgtomo next ${key}` };
+    }
+    if (t.status === 'blocked') {
+      t.status = t.blocked?.status || 'running'; t.await = t.blocked?.await || null; delete t.blocked; delete t.tool_failures;
+      approvalLog(root, { key, verb: 'unblock', stage: t.stage, note, source });
+      if (note.trim()) appendLine(path.join(layout(root).ticketDir(key), 'updates.md'), `\n## ${nowIso().slice(0, 16)} unblocked by the human\n\n${redactInside(note, cfg.safety)}\n`);
+      save(root, t, { event: 'unblocked' });
       return { resumed: true, next: `orgtomo next ${key}` };
     }
     if (t.status !== 'escalated') fail(`Ticket ${key} is ${t.status}; there is nothing to resume.`);
@@ -513,6 +619,6 @@ function renderStatus(root, t) {
 
 /** Compact status for the CLI, the UI and the session banner. */
 export function summary(t) {
-  return { key: t.key, title: t.title, type: t.type, status: t.status, stage: t.stage, path: t.path, loops: t.loops, waiting_for: t.await?.kind || null, waiting_detail: t.await?.org || t.await?.stage || null, updated_at: t.updated_at };
+  return { key: t.key, title: t.title, type: t.type, status: t.status, stage: t.stage, path: t.path, loops: t.loops, waiting_for: t.await?.kind || null, waiting_detail: t.await?.org || t.await?.stage || null, blocked_reason: t.status === 'blocked' ? t.await?.reason || null : null, updated_at: t.updated_at };
 }
 export { buildOrg };

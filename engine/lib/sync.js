@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { PLUGIN_ROOT, layout } from './paths.js';
 import { orgNames, org as getOrg, loopMax, approvalStages } from './config.js';
-import { grantedTools, allowedBrowserHosts } from './guards/mcp.js';
+import { grantedTools, allowedBrowserHosts, productionHosts } from './guards/mcp.js';
 import { lessonsFor } from './learning.js';
 import { parse as parseYaml } from './yaml.js';
 import { exists, readText, writeText, readJson, writeJson, listFiles, getPath } from './util.js';
@@ -63,9 +63,9 @@ export function renderAgent(cfg, name) {
   }
   tools.push(...grantedTools(cfg, name));
   const skills = [...(head.skills || [])];
-  if (head.style_skills) skills.push('org-naming', 'org-comments', 'org-format');
+  if (head.style_skills) skills.push('org-naming', 'org-comments', 'org-format', 'org-standards');
   skills.push(`lessons-${name}`);
-  const lite = cfg.agents.max_turns?.default ?? 60;
+  const turns = cfg.agents.max_turns?.default ?? 60;
   const front = [
     '---',
     `name: ${agentFileName(name)}`,
@@ -73,7 +73,7 @@ export function renderAgent(cfg, name) {
     `tools: ${[...new Set(tools)].join(', ')}`,
     `model: ${def.model}`,
     `effort: ${def.effort}`,
-    `maxTurns: ${head.max_turns || lite}`,
+    `maxTurns: ${head.max_turns || turns}`,
     'skills:',
     ...skills.map((s) => `  - ${s}`),
     ...(head.color ? [`color: ${head.color}`] : []),
@@ -102,6 +102,13 @@ function formatSkill(cfg) {
   const forb = (cfg.conventions.forbidden || []).map((x) => `- **${x.id}**: ${x.why}`).join('\n');
   return `${skillHead('org-format', "This org's code format and forbidden patterns. Apply to every file you create or change.")}# Format rules of this org\n\n- Indent with ${f.indent_style === 'tab' ? 'tabs' : `${f.indent} spaces`}.\n- Lines are at most ${f.max_line} characters.\n- Every new class declares sharing. Default: \`${f.sharing_default}\`.\n- Triggers: ${f.trigger_pattern}.\n- Match the style of the file you are editing; do not reformat lines you are not changing.\n\n## Forbidden\n\n${forb || '_None configured._'}\n`;
 }
+function standardsSkill(cfg) {
+  const list = cfg.conventions.standards || [];
+  const body = list.length
+    ? list.map((x, i) => `${i + 1}. **${x.rule}**${x.why ? `\n   Why: ${x.why}` : ''}${x.applies_to ? `\n   Applies to: ${x.applies_to}` : ''}`).join('\n')
+    : '_None written yet. The human adds them in conventions.yaml under `standards`: one rule each, with the reason._';
+  return `${skillHead('org-standards', "This company's own build and ship rules: which tools are standard, what is never done, who decides. Apply them to every plan, build and review.")}# Standing rules of this company\n\nThese are decisions the company has already made. They are not up for discussion inside a ticket: follow them, and if one cannot be followed, say so as a deviation with the reason.\n\n${body}\n`;
+}
 function lessonsSkill(root, name) {
   const lessons = lessonsFor(root, name);
   const body = lessons.length
@@ -121,10 +128,17 @@ export function renderMcp(root, cfg) {
     if (name === 'granola' && !(cfg.features.meetings?.enabled && cfg.features.meetings.provider === 'granola')) continue;
     if (name === 'atlassian' && cfg.features.tracker?.provider !== 'atlassian') continue;
     if (name === 'playwright') {
-      if (cfg.safety.browser?.provider !== 'playwright') continue;
+      const provider = cfg.safety.browser?.provider;
+      if (!['playwright', 'playwright-extension'].includes(provider)) continue;
       const args = [...(server.args || [])];
-      if (!args.includes('--user-data-dir')) args.push('--user-data-dir', path.join(root, '.orgtomo', 'browser-profile'));
+      // "playwright": its own browser with a profile kept in the workspace.
+      // "playwright-extension": attach to a Chrome the human already runs and is signed in to.
+      if (provider === 'playwright-extension') { if (!args.includes('--extension')) args.push('--extension'); }
+      else if (!args.includes('--user-data-dir')) args.push('--user-data-dir', path.join(root, '.orgtomo', 'browser-profile'));
       if (!args.includes('--output-dir')) args.push('--output-dir', path.join(root, '.orgtomo', 'browser-out'));
+      // Production is refused by the navigation guard; this also stops a link or a script inside a page from reaching it.
+      const blocked = productionHosts(cfg).flatMap((stem) => [`https://${stem}.my.salesforce.com`, `https://${stem}.lightning.force.com`, `https://${stem}.my.salesforce-setup.com`, `https://${stem}.my.site.com`]);
+      if (blocked.length && !args.includes('--blocked-origins')) args.push('--blocked-origins', blocked.join(';'));
       out[name] = { ...server, args };
       continue;
     }
@@ -167,6 +181,7 @@ export function sync(root, cfg) {
   put(path.join(skillsDir, 'org-naming', 'SKILL.md'), namingSkill(cfg));
   put(path.join(skillsDir, 'org-comments', 'SKILL.md'), commentsSkill(cfg));
   put(path.join(skillsDir, 'org-format', 'SKILL.md'), formatSkill(cfg));
+  put(path.join(skillsDir, 'org-standards', 'SKILL.md'), standardsSkill(cfg));
   for (const name of Object.keys(cfg.agents.agents)) put(path.join(skillsDir, `lessons-${name}`, 'SKILL.md'), lessonsSkill(root, name));
 
   const settingsFile = path.join(L.claude, 'settings.json');
@@ -192,6 +207,6 @@ export function sync(root, cfg) {
   if (!exists(claudeMd) || readText(claudeMd).includes(marker)) {
     put(claudeMd, `${marker}\n# Orgtomo workspace\n\nThis folder is run by Orgtomo. Work on Salesforce tickets happens only through its team of agents.\n\n- Start a session with \`orgtomo start\` (or \`claude --agent tomo-lead\`).\n- The engine decides the order of work: \`orgtomo next <KEY>\`.\n- Production is read-only and masked. Deploys to other orgs are done by a human.\n- Configuration is in \`orgtomo.config/\`; agents cannot change it.\n- Knowledge lives in \`vault/\` (open it in Obsidian).\n`);
   }
-  if (!allowedBrowserHosts(cfg).length && cfg.safety.browser?.provider === 'playwright') notes.push('No sandbox host is set in orgs.yaml (host:). The browser stays closed for agents until you add one.');
+  if (!allowedBrowserHosts(cfg).length && ['playwright', 'playwright-extension'].includes(cfg.safety.browser?.provider)) notes.push('No sandbox host is set in orgs.yaml (host:). The browser stays closed for agents until you add one.');
   return { written, removed, notes };
 }

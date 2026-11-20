@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { makeWorkspace, writeOut, cleanup, HERE } from './helpers.mjs';
+import { makeWorkspace, writeOut, cleanup, HERE, intakeOf } from './helpers.mjs';
 import { handle } from '../engine/lib/hook.js';
 import * as T from '../engine/lib/ticket.js';
 import * as B from '../engine/lib/brain.js';
@@ -82,7 +82,7 @@ test('an agent cannot finish without submitting', () => {
   assert.equal(ev('SubagentStop', { agent_type: 'analyst', agent_id: 'a1', stop_hook_active: true }), null, 'no endless loop');
   ev('SubagentStart', { agent_type: 'analyst', agent_id: 'a2' });
   const e = addEvidence(root, 'HOK-1', { kind: 'brain', org: 'dev', actor: 'analyst', summary: 'f', payload: {} }).id;
-  writeOut(ws, 'HOK-1', '01-understanding', { key: 'HOK-1', summary_plain: 'A plain explanation that is long enough to be accepted by the contract.', summary_technical: 'A technical explanation that is long enough to be accepted by the contract.', acceptance_criteria: [{ id: 'AC1', text: 'works', source: 'ticket' }], examples: [{ title: 't', given: 'g', when: 'w', then: 't' }], affected: [{ component: 'ApexClass:CaseService', why: 'w', proof: [e] }], open_questions: [], risk: 'low', lite_candidate: false, claims: [{ id: 'C1', text: 'CaseService exists in the build org.', proof: [e] }] });
+  writeOut(ws, 'HOK-1', '01-understanding', { key: 'HOK-1', intake: intakeOf(e), summary_plain: 'A plain explanation that is long enough to be accepted by the contract.', summary_technical: 'A technical explanation that is long enough to be accepted by the contract.', acceptance_criteria: [{ id: 'AC1', text: 'works', source: 'ticket' }], examples: [{ title: 't', given: 'g', when: 'w', then: 't' }], affected: [{ component: 'ApexClass:CaseService', why: 'w', proof: [e] }], open_questions: [], risk: 'low', lite_candidate: false, claims: [{ id: 'C1', text: 'CaseService exists in the build org.', proof: [e] }] });
   T.submit(root, ws.cfg, 'HOK-1', 'understand', { actor: 'analyst' });
   assert.equal(ev('SubagentStop', { agent_type: 'analyst', agent_id: 'a2' }), null);
   r = ev('Stop', { agent_type: 'tomo-lead' });

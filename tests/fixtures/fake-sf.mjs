@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // A stand-in for the Salesforce CLI used by the offline tests. It keeps each
 // "org" as a folder of source-format metadata and answers the few commands the
-// engine uses with the same JSON shape as the real CLI.
+// engine uses with the same JSON shape as the real CLI. It also enforces the
+// rules of the real CLI that the engine has to respect, with the same error
+// names, so that a test fails here before a ticket fails on a real org.
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -12,7 +14,9 @@ const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : u
 const flags = (n) => args.flatMap((a, i) => (a === n ? [args[i + 1]] : []));
 const alias = flag('--target-org');
 const orgDir = state.orgs[alias];
-const out = (result, status = 0, message) => { console.log(JSON.stringify({ status, result, message })); process.exit(status ? 1 : 0); };
+const out = (result, status = 0, message, name) => { console.log(JSON.stringify({ status, result, message, ...(name ? { name } : {}) })); process.exit(status ? 1 : 0); };
+/** Nearest folder at or above `dir` that holds sfdx-project.json, like the real CLI resolves its project. */
+const projectOf = (dir) => { for (let d = path.resolve(dir); ; d = path.dirname(d)) { if (fs.existsSync(path.join(d, 'sfdx-project.json'))) return d; if (path.dirname(d) === d) return null; } };
 const walk = (d, rel = '') => (fs.existsSync(d) ? fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name), `${rel}${e.name}/`) : [`${rel}${e.name}`])) : []);
 const log = (line) => fs.appendFileSync(process.env.FAKE_SF_STATE + '.log', `${args.join(' ')}${line ? ` # ${line}` : ''}\n`);
 log('');
@@ -21,14 +25,25 @@ const topic = args.filter((a) => !a.startsWith('-')).slice(0, 3).join(' ');
 
 if (topic.startsWith('data query')) {
   const q = flag('--query');
-  if (/FROM Organization/i.test(q)) out({ totalSize: 1, records: [{ attributes: { type: 'Organization' }, Id: '00D000000000001AAA', IsSandbox: !state.production.includes(alias), OrganizationType: 'Enterprise Edition', InstanceName: 'FAKE1' }] });
+  if (state.unreachable?.includes(alias)) out(null, 1, 'Unable to refresh session due to: Error authenticating with the refresh token due to: inactive organization');
+  if (/FROM Organization/i.test(q)) out({ totalSize: 1, records: [{ attributes: { type: 'Organization' }, Id: state.org_ids?.[alias] || '00D000000000001AAA', IsSandbox: !state.production.includes(alias), OrganizationType: 'Enterprise Edition', InstanceName: 'FAKE1' }] });
   const hit = Object.entries(state.queries || {}).find(([k]) => q.includes(k));
   const records = hit ? hit[1] : [{ attributes: { type: 'Case' }, Id: '500000000000001AAA', Subject: 'Printer issue', SuppliedEmail: 'real.person@client.org', Status: 'New' }];
   out({ totalSize: records.length, records });
 }
 if (topic.startsWith('project retrieve start')) {
   const refs = flags('--metadata');
-  const dest = flag('--output-dir') || path.join(process.cwd(), 'force-app', 'main', 'default');
+  const project = projectOf(process.cwd());
+  if (flag('--output-dir')) {
+    const target = path.resolve(flag('--output-dir'));
+    if (project) {
+      // The two rules of "sf project retrieve start --output-dir" in the real CLI.
+      const dirs = (JSON.parse(fs.readFileSync(path.join(project, 'sfdx-project.json'), 'utf8')).packageDirectories || []).map((d) => path.resolve(project, d.path));
+      if (dirs.some((d) => target === d || target.startsWith(d + path.sep))) out(null, 1, `The retrieve target directory [${flag('--output-dir')}] overlaps one of your package directories. Specify a different retrieve target directory and try again.`, 'RetrieveTargetDirOverlapsPackageError');
+      if (path.relative(project, target).startsWith('..')) out(null, 1, `The output directory must be inside the current project. The path relative you provided ${flag('--output-dir')} is outside the project root.`, 'OutputDirOutsideProjectError');
+    }
+  }
+  const dest = flag('--output-dir') ? path.resolve(flag('--output-dir')) : path.join(process.cwd(), 'force-app', 'main', 'default');
   const match = (file) => refs.some((r) => {
     const [type, name] = r.split(':');
     const folder = { ApexClass: 'classes/', ApexTrigger: 'triggers/', Flow: 'flows/', LightningComponentBundle: 'lwc/', PermissionSet: 'permissionsets/', CustomObject: 'objects/', CustomField: 'objects/', ValidationRule: 'objects/', CustomLabels: 'labels/' }[type];
@@ -56,6 +71,15 @@ if (topic.startsWith('project deploy start')) {
     }
   }
   out({ status: 'Succeeded', files: copied.map((f) => ({ filePath: f, state: 'Changed' })) });
+}
+if (topic.startsWith('org open')) {
+  if (!args.includes('--url-only')) out(null, 1, 'fake sf: only --url-only is supported');
+  out({ url: `https://${alias}.sandbox.my.salesforce.com/secur/frontdoor.jsp?otp=ONE-TIME&startURL=${encodeURIComponent(flag('--path') || '/')}`, orgId: '00D000000000001AAA', username: `${alias}@example.test` });
+}
+if (topic.startsWith('org list sobject')) out(state.record_counts || [{ name: 'Account', count: 7 }, { name: 'Case', count: 42 }]);
+if (topic.startsWith('config set')) {
+  if (!projectOf(process.cwd())) out(null, 1, `${process.cwd()} does not contain a valid Salesforce DX project.`, 'InvalidProjectWorkspaceError');
+  out({ successes: [{ name: 'target-org', value: args.at(-1) }], failures: [] });
 }
 if (topic.startsWith('apex run test')) {
   const classes = flags('--class-names');

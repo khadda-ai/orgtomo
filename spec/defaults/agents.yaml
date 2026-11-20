@@ -19,4 +19,3 @@ rules:
   reviewer_differs_from_builder: true
 max_turns:
   default: 60
-  lite: 25

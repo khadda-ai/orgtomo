@@ -35,3 +35,15 @@ forbidden:
   - { id: system-debug,    pattern: "System\\.debug\\(", files: "*.cls,*.trigger", except: "*Test.cls", why: "No System.debug in committed code." }
   - { id: see-all-data,    pattern: "SeeAllData\\s*=\\s*true", files: "*.cls", why: "Tests must not depend on org data." }
   - { id: without-sharing, pattern: "\\bwithout sharing\\b", files: "*.cls", why: "without sharing needs a written reason in the plan (declare it as a deviation)." }
+
+# Standing rules of your company: decisions that are already made and that every
+# plan, build and review must follow. One rule each, with the reason. They are
+# given to the Planner, the Builder and the Reviewer as the "org-standards" skill.
+# Examples of the kind of rule that belongs here:
+#   - rule: "Roll-up fields are built with <the tool your company standardised on>."
+#     why: "One tool to maintain and to license."
+#   - rule: "Flow fault paths go through <your shared error subflow>."
+#     why: "Errors reach one place where someone looks at them."
+#   - rule: "A renamed picklist value is replaced, not relabelled."
+#     why: "A relabel keeps the old stored value, and reports that read raw values go wrong."
+standards: []

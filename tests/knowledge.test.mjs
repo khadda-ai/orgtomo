@@ -157,7 +157,7 @@ test('sync generates agents from configuration, and only what is switched on', (
     assert.ok(!lead.includes('{{'), 'no unfilled placeholder');
     const builder = fs.readFileSync(path.join(root, '.claude/agents/builder.md'), 'utf8');
     assert.match(builder, /execute_metadata_action/);
-    assert.match(builder, /- org-naming\n  - org-comments\n  - org-format\n  - lessons-builder/);
+    assert.match(builder, /- org-naming\n  - org-comments\n  - org-format\n  - org-standards\n  - lessons-builder/);
     assert.ok(!fs.existsSync(path.join(root, '.claude/agents/notetaker.md')));
     const tester = fs.readFileSync(path.join(root, '.claude/agents/tester.md'), 'utf8');
     assert.ok(!tester.includes('browser_evaluate') && tester.includes('mcp__playwright__browser_snapshot'));
@@ -215,7 +215,7 @@ test('the CLI: JSON out, errors as JSON, human verbs closed to agents', () => {
     assert.equal(JSON.parse(cli(['submit', 'CLI-1', 'understand'], { ORGTOMO_ACTOR: 'builder' }).stderr).code, 'WRONG_ACTOR');
     assert.match(cli(['help']).stdout, /Command reference/);
     assert.equal(JSON.parse(cli(['doctor']).stdout).ok, true);
-    assert.equal(JSON.parse(cli(['models']).stdout).reviewer, 'fable / high');
+    assert.equal(JSON.parse(cli(['models']).stdout).agents.reviewer, 'fable / high');
     assert.equal(cli(['nonsense']).status, 2);
   } finally { cleanup(ws); }
 });

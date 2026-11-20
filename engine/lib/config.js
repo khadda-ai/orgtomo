@@ -5,6 +5,7 @@ import path from 'node:path';
 import { parse, parseDocument } from './yaml.js';
 import { exists, readText, writeText, merge, fail } from './util.js';
 import { SPEC_DIR, layout } from './paths.js';
+import { shippedCatalogue, resolveModel, effortsFor } from './models.js';
 
 export const CONFIG_FILES = ['orgs', 'pipeline', 'safety', 'agents', 'features', 'conventions', 'capabilities'];
 export const MODELS = ['sonnet', 'opus', 'haiku', 'fable', 'inherit'];
@@ -58,6 +59,11 @@ export const loopMax = (cfg) => Math.max(0, Math.min(Number(cfg.pipeline.loop?.m
 export const approvalStages = (cfg) => [...new Set([...(cfg.pipeline.approvals?.[cfg.pipeline.autonomy] || []), 'review'])];
 
 export const validModel = (m) => MODELS.includes(m) || /^claude-[a-z0-9.-]+$/.test(String(m));
+/** True when two model settings mean the same model ("opus" and the full id it stands for). */
+export function sameModel(a, b) {
+  const cat = shippedCatalogue();
+  return resolveModel(cat, a) === resolveModel(cat, b);
+}
 
 /**
  * Check a configuration. Returns { errors, warnings }; errors stop the engine.
@@ -99,9 +105,19 @@ export function validateConfig(cfg) {
     if (!EFFORTS.includes(def.effort)) errors.push(`agents.yaml: ${name}.effort "${def.effort}" must be one of ${EFFORTS.join(', ')}.`);
     if (def.core && def.enabled === false) errors.push(`agents.yaml: ${name} is a core agent and cannot be turned off.`);
   }
-  if (cfg.agents.rules?.reviewer_differs_from_builder && a.reviewer && a.builder && a.reviewer.model === a.builder.model && a.reviewer.model !== 'inherit') {
-    errors.push(`agents.yaml: reviewer and builder both use "${a.builder.model}". Pick different models or turn rules.reviewer_differs_from_builder off.`);
+  const cat = shippedCatalogue();
+  // An alias and the full id it stands for are the same model: compare what they resolve to.
+  if (cfg.agents.rules?.reviewer_differs_from_builder && a.reviewer && a.builder && sameModel(a.reviewer.model, a.builder.model) && a.reviewer.model !== 'inherit') {
+    errors.push(`agents.yaml: reviewer ("${a.reviewer.model}") and builder ("${a.builder.model}") run on the same model. Pick different models or turn rules.reviewer_differs_from_builder off.`);
   }
+  for (const [name, def] of Object.entries(a)) {
+    if (!validModel(def.model) || !EFFORTS.includes(def.effort) || def.model === 'inherit') continue;
+    const known = (cat.models || []).some((m) => m.id === resolveModel(cat, def.model));
+    if (known && !effortsFor(cat, def.model).includes(def.effort)) warnings.push(`agents.yaml: ${name} uses effort "${def.effort}", which ${resolveModel(cat, def.model)} does not offer (it offers ${effortsFor(cat, def.model).join(', ')}).`);
+  }
+  const br = s.browser || {};
+  if (br.provider && !['playwright', 'playwright-extension', 'none'].includes(br.provider)) errors.push('safety.yaml: browser.provider must be playwright, playwright-extension or none.');
+  if (br.login && !['frontdoor', 'manual'].includes(br.login)) errors.push('safety.yaml: browser.login must be frontdoor or manual.');
   for (const [kind, pattern] of Object.entries(flatPatterns(cfg.conventions.naming || {}))) {
     try { new RegExp(pattern); } catch { errors.push(`conventions.yaml: naming.${kind} is not a valid pattern.`); }
   }

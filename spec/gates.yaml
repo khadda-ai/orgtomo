@@ -10,7 +10,9 @@
 version: 1
 gates:
   contract:              { type: schema,   impl: contract,             why: "Output matches its contract and the human-readable file exists." }
-  evidence:              { type: evidence, impl: evidence,             why: "Every claim cites evidence recorded by the engine. No hedging words." }
+  evidence:              { type: evidence, impl: evidence,             why: "Every claim cites evidence recorded by the engine. No hedging words. A result of zero rows needs a control." }
+  intake-check:          { type: evidence, impl: intakeCheck,          why: "The ticket was checked against the system: every name it uses exists, and the assumption it rests on was tested." }
+  self-review:           { type: lint,     impl: selfReview,           why: "The author tried to break the result before handing it over, and recorded what was checked and what was dropped." }
   no-blocking-questions: { type: lint,     impl: noBlockingQuestions,  why: "Open questions marked blocking go to the human instead of being guessed." }
   repro-proof:           { type: org-check, impl: reproProof,          why: "A bug is reproduced with data proof from a non-production org, never from reading code." }
   data-safe:             { type: safety,   impl: dataSafe,             why: "No e-mail address or phone number outside the allow list appears in outputs or changed files." }

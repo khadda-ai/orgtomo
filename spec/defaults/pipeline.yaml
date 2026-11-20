@@ -36,4 +36,16 @@ brain:
   # Standard objects are not included by a wildcard; name the ones you customised.
   standard_objects: [Account, Contact, Case, Lead, Opportunity]
 
+discover:
+  org: ""                    # the org to study for business discovery (orgtomo discover run <org>)
+  # Extra metadata a discovery run retrieves, on top of the Brain's own types:
+  # how records move (approvals, rules, paths), who works where (roles, queues,
+  # permission set groups), what the apps show, and what the org talks to.
+  types: [ApprovalProcess, AssignmentRules, AutoResponseRules, EscalationRules, Workflow, PathAssistant, DuplicateRule, EntitlementProcess,
+          Queue, Role, PermissionSetGroup, CustomApplication, CustomTab, QuickAction, FlexiPage, Layout, CustomMetadata,
+          NamedCredential, ConnectedApp, InstalledPackage]
+
+baseline:
+  max_test_classes: 40       # a longer regression list is a human decision before it is run
+
 keep_going: true             # the Lead does not stop between stages until a human gate

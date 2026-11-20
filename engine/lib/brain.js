@@ -5,6 +5,7 @@
 //   vault/orgs/<org>/facts/<Type>/<Name>.md     one note per component
 //   vault/orgs/<org>/facts/_automation/<Object>.md   everything that runs on an object
 //   vault/orgs/<org>/maps/<Object>.canvas       the same as a JSON Canvas map
+//   vault/orgs/<org>/objects/<Object>.md        hub: one page per object that links everything about it
 //   vault/orgs/<org>/_index.json                machine index (components, hashes, links)
 //   vault/orgs/<org>/understanding/             notes written by the Cartographer
 import fs from 'node:fs';
@@ -14,7 +15,8 @@ import { org as getOrg } from './config.js';
 import { refFromPath, parseRef } from './metadata.js';
 import { parseXml, kids, val, findAll } from './xml.js';
 import { lessonsFor } from './learning.js';
-import { exists, readText, writeText, readJson, writeJson, listFiles, sha256, sha256File, nowIso, today, appendLine, formatFrontmatter, uniq, fail } from './util.js';
+import { redactInside } from './mask.js';
+import { exists, readText, writeText, readJson, writeJson, listFiles, sha256, sha256File, nowIso, today, appendLine, formatFrontmatter, parseFrontmatter, uniq, fail, SOURCE_IGNORE } from './util.js';
 
 const noteRel = (orgName, ref) => { const { type, name } = parseRef(ref); return `orgs/${orgName}/facts/${type}/${name.replace(/\//g, '_')}`; };
 const link = (orgName, ref) => `[[${noteRel(orgName, ref)}|${parseRef(ref).name}]]`;
@@ -23,7 +25,7 @@ const link = (orgName, ref) => `[[${noteRel(orgName, ref)}|${parseRef(ref).name}
 
 /** Read every known component under a source folder. */
 export function scanSource(root, sourceDir) {
-  const files = listFiles(sourceDir, { ignore: ['node_modules', '.git', '.sf', '.sfdx'] });
+  const files = listFiles(sourceDir, { ignore: SOURCE_IGNORE });
   const comps = new Map();
   for (const f of files) {
     const ref = refFromPath(f);
@@ -42,7 +44,37 @@ export function scanSource(root, sourceDir) {
 
 const read = (sourceDir, c, test) => { const f = c.files.find(test); return f ? readText(path.join(sourceDir, f)) : ''; };
 
-function parseComponent(sourceDir, c, known) {
+/** Types read with the generic reader: process, access and app metadata. */
+const GENERIC_TYPES = new Set(['ApprovalProcess', 'AssignmentRules', 'AutoResponseRules', 'EscalationRules', 'Workflow', 'PathAssistant', 'Queue', 'Group', 'Role', 'PermissionSetGroup',
+  'QuickAction', 'FlexiPage', 'Layout', 'CustomApplication', 'CustomTab', 'CustomMetadata', 'NamedCredential', 'InstalledPackage', 'DuplicateRule', 'EntitlementProcess', 'ConnectedApp']);
+/** Types whose file is named after the object they belong to. */
+const NAMED_AFTER_OBJECT = new Set(['AssignmentRules', 'AutoResponseRules', 'EscalationRules', 'Workflow']);
+/** Process metadata listed on the automation note of its object, without a claim about order. */
+const PROCESS_TYPES = ['ApprovalProcess', 'AssignmentRules', 'AutoResponseRules', 'EscalationRules', 'Workflow', 'PathAssistant', 'DuplicateRule', 'EntitlementProcess'];
+const snake = (s) => s.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
+
+/**
+ * Facts from any metadata file without knowing its schema: single text
+ * children become values, repeated text children become lists, and repeated
+ * structured children are counted. Nothing here depends on an element name.
+ */
+function genericFacts(x, safety) {
+  const facts = {};
+  const groups = new Map();
+  for (const ch of x.children) groups.set(ch.name, [...(groups.get(ch.name) || []), ch]);
+  const parts = {};
+  const clean = (t) => (safety ? redactInside(t, safety) : t);
+  for (const [name, list] of groups) {
+    const leaf = list.every((n) => !n.children.length);
+    if (leaf && list.length === 1) { if (list[0].text && list[0].text.length <= 300) facts[snake(name)] = clean(list[0].text); }
+    else if (leaf) facts[snake(name)] = list.map((n) => clean(n.text)).filter(Boolean).slice(0, 60);
+    else parts[name] = list.length;
+  }
+  if (Object.keys(parts).length) facts.parts = parts;
+  return facts;
+}
+
+function parseComponent(sourceDir, c, known, { safety, standardObjects = [] } = {}) {
   const facts = {};
   const deps = new Set();
   const addObj = (o) => { if (o) deps.add(`CustomObject:${o}`); };
@@ -120,6 +152,17 @@ function parseComponent(sourceDir, c, known) {
     Object.assign(facts, { label: val(x, 'label'), object_permissions: kids(x, 'objectPermissions').length, field_permissions: kids(x, 'fieldPermissions').length, class_accesses: kids(x, 'classAccesses').length });
     for (const a of kids(x, 'classAccesses')) if (val(a, 'enabled') === 'true') deps.add(`ApexClass:${val(a, 'apexClass')}`);
   }
+  else if (GENERIC_TYPES.has(c.type)) {
+    const text = read(sourceDir, c, (f) => f.endsWith('-meta.xml'));
+    if (text) Object.assign(facts, genericFacts(parseXml(text), safety));
+    // Which object this belongs to: said by the file itself, or by how Salesforce names the file.
+    // Custom metadata records are named "Type.Record"; the part before the dot is not an object.
+    const cand = c.type === 'CustomMetadata' ? null : facts.entity_name || facts.sobject_type || facts.target_object
+      || (NAMED_AFTER_OBJECT.has(c.type) ? c.name : c.type === 'Layout' ? c.name.split('-')[0] : c.name.includes('.') ? c.name.split('.')[0] : null);
+    const looksLikeObject = typeof cand === 'string' && (known.has(`CustomObject:${cand}`) || standardObjects.includes(cand) || /__(c|mdt|e|b|x)$/.test(cand) || /^[A-Z][A-Za-z0-9]+$/.test(cand));
+    if (looksLikeObject) { facts.object = cand; addObj(cand); }
+    else delete facts.object;
+  }
   for (const [k, v] of Object.entries(facts)) if (v === undefined || v === null || (Array.isArray(v) && !v.length)) delete facts[k];
   return { facts, deps: [...deps].filter((d) => d !== c.ref && known.has(d)).sort() };
 }
@@ -142,12 +185,15 @@ function factNote(orgName, c, usedBy) {
   return `${fm}# ${c.name}\n\n> Generated from metadata by Orgtomo. Do not edit: the next sync overwrites it. Interpretation belongs in \`understanding/\`.\n\n| Fact | Value |\n|---|---|\n| Type | ${c.type} |\n${scalar.map(([k, v]) => `| ${k.replace(/_/g, ' ')} | ${String(v).replace(/\|/g, '\\|').replace(/\n/g, ' ')} |`).join('\n')}\n${lists.map(([k, v]) => `\n**${k.replace(/_/g, ' ')}:** ${Array.isArray(v) ? v.join(', ') : Object.entries(v).map(([a, b]) => `${a} ${b}`).join(', ')}`).join('\n')}\n\n## Uses\n\n${c.deps.map((d) => `- ${link(orgName, d)} (${parseRef(d).type})`).join('\n') || '_Nothing found by static analysis._'}\n\n## Used by\n\n${usedBy.map((d) => `- ${link(orgName, d)} (${parseRef(d).type})`).join('\n') || '_Nothing found by static analysis._'}\n`;
 }
 
-function automationNote(orgName, object, comps) {
+function automationNote(orgName, object, comps, extras = []) {
+  const also = extras.length
+    ? `\n\n## Also configured on this object\n\nProcess metadata that takes part in what happens to a record. It is listed here without a claim about order.\n\n${extras.sort((a, b) => a.ref.localeCompare(b.ref)).map((c) => `- ${link(orgName, c.ref)} (${c.type})${c.facts.active ? `, active: ${c.facts.active}` : ''}`).join('\n')}`
+    : '';
   const sections = AUTOMATION_GROUPS.map(([title, test]) => {
     const list = comps.filter(test).sort((a, b) => Number(a.facts.trigger_order || 9999) - Number(b.facts.trigger_order || 9999) || a.name.localeCompare(b.name));
     return `## ${title}\n\n${list.map((c) => `- ${link(orgName, c.ref)}${c.facts.status ? ` (${c.facts.status})` : ''}${c.facts.active ? ` (active: ${c.facts.active})` : ''}${c.facts.trigger_order ? `, trigger order ${c.facts.trigger_order}` : ''}${c.facts.events ? `: ${c.facts.events.join(', ')}` : ''}`).join('\n') || '_None._'}`;
   });
-  return `${formatFrontmatter({ type: 'automation-map', object, org: orgName, tags: ['orgtomo/fact'] })}# What runs on ${object}\n\n> Generated. The groups follow the order Salesforce documents for a record save (Apex Developer Guide, "Triggers and Order of Execution"). Inside a group the order is not guaranteed unless a flow trigger order is set. Workflow rules, processes, assignment and escalation rules are not listed here unless they were retrieved.\n\n${sections.join('\n\n')}\n`;
+  return `${formatFrontmatter({ type: 'automation-map', object, org: orgName, tags: ['orgtomo/fact'] })}# What runs on ${object}\n\n> Generated. The groups follow the order Salesforce documents for a record save (Apex Developer Guide, "Triggers and Order of Execution"). Inside a group the order is not guaranteed unless a flow trigger order is set. Workflow rules, processes, assignment and escalation rules are not listed here unless they were retrieved.\n\n${sections.join('\n\n')}${also}\n`;
 }
 
 function automationCanvas(orgName, object, comps, byRef) {
@@ -186,7 +232,8 @@ export function buildBrain(root, cfg, orgName, { sourceDir } = {}) {
   if (!exists(dir)) fail(`No source folder for "${orgName}" at ${rel(root, dir)}. Retrieve the org's metadata there first (orgtomo brain retrieve ${orgName}).`, 'NO_SOURCE');
   const comps = scanSource(root, dir);
   const known = new Set(comps.keys());
-  for (const c of comps.values()) Object.assign(c, parseComponent(dir, c, known));
+  const standardObjects = cfg.pipeline.brain?.standard_objects || [];
+  for (const c of comps.values()) Object.assign(c, parseComponent(dir, c, known, { safety: cfg.safety, standardObjects }));
   for (const c of comps.values()) { const o = c.facts.object; if (o && !known.has(`CustomObject:${o}`)) c.standard_object = o; }
   const usedBy = new Map();
   for (const c of comps.values()) for (const d of c.deps) usedBy.set(d, [...(usedBy.get(d) || []), c.ref]);
@@ -208,21 +255,27 @@ export function buildBrain(root, cfg, orgName, { sourceDir } = {}) {
   for (const ref of Object.keys(prev.components)) {
     if (!index.components[ref]) { changes.removed.push(ref); fs.rmSync(path.join(L.vault, prev.components[ref].note), { force: true }); }
   }
-  const objects = uniq([...comps.values()].map((c) => c.facts.object).filter(Boolean)).sort();
+  // An object is part of the map when something of substance sits on it. A page layout or a list view alone
+  // does not make it one: every standard object has those, used or not.
+  const THIN = new Set(['Layout', 'FlexiPage', 'QuickAction', 'ListView', 'CompactLayout', 'WebLink', 'FieldSet', 'CustomTab']);
+  const objects = uniq([...comps.values()].flatMap((c) => (c.type === 'CustomObject' ? [c.name] : c.facts.object && !THIN.has(c.type) ? [c.facts.object] : []))).sort();
   const withAutomation = [];
   for (const o of objects) {
     const list = [...comps.values()].filter((c) => c.facts.object === o && ['Flow', 'ApexTrigger', 'ValidationRule'].includes(c.type));
-    if (!list.length) continue;
+    const extras = [...comps.values()].filter((c) => c.facts.object === o && PROCESS_TYPES.includes(c.type));
+    if (!list.length && !extras.length) continue;
     withAutomation.push(o);
-    writeText(path.join(orgDir, 'facts', '_automation', `${o}.md`), automationNote(orgName, o, list));
+    writeText(path.join(orgDir, 'facts', '_automation', `${o}.md`), automationNote(orgName, o, list, extras));
     writeText(path.join(orgDir, 'maps', `${o}.canvas`), automationCanvas(orgName, o, list, comps));
   }
   index.objects_with_automation = withAutomation;
+  index.objects = objects;
   writeJson(path.join(orgDir, '_index.json'), index);
+  writeHubs(root, orgName, index);
 
   const counts = {};
   for (const c of comps.values()) counts[c.type] = (counts[c.type] || 0) + 1;
-  writeText(path.join(orgDir, 'Overview.md'), `${formatFrontmatter({ type: 'org-overview', org: orgName, role: getOrg(cfg, orgName).role, built: index.built_at, components: comps.size })}# ${orgName}: overview\n\nGenerated ${index.built_at.slice(0, 16).replace('T', ' ')} from \`${index.source}\`.\n\n| Type | Count |\n|---|---|\n${Object.entries(counts).sort().map(([t, n]) => `| ${t} | ${n} |`).join('\n')}\n\n## Objects with automation\n\n${withAutomation.map((o) => `- [[orgs/${orgName}/facts/_automation/${o}|${o}]] ([[orgs/${orgName}/maps/${o}.canvas|map]])`).join('\n') || '_None found._'}\n\n## Understanding\n\nNotes written by the Cartographer live in [[orgs/${orgName}/understanding/README|understanding]]. They explain; the fact notes prove.\n`);
+  writeText(path.join(orgDir, 'Overview.md'), `${formatFrontmatter({ type: 'org-overview', org: orgName, role: getOrg(cfg, orgName).role, built: index.built_at, components: comps.size })}# ${orgName}: overview\n\nGenerated ${index.built_at.slice(0, 16).replace('T', ' ')} from \`${index.source}\`.\n\n| Type | Count |\n|---|---|\n${Object.entries(counts).sort().map(([t, n]) => `| ${t} | ${n} |`).join('\n')}\n\n## Objects\n\nOne hub page per object links its fields, automation, tests, tickets and notes. ${objects.length} object(s): ${objects.slice(0, 80).map((o) => `[[orgs/${orgName}/objects/${o}|${o}]]`).join(', ')}${objects.length > 80 ? ', ...' : ''}\n\n## Objects with automation\n\n${withAutomation.map((o) => `- [[orgs/${orgName}/facts/_automation/${o}|${o}]] ([[orgs/${orgName}/maps/${o}.canvas|map]])`).join('\n') || '_None found._'}\n\n## Understanding\n\nNotes written by the Cartographer live in [[orgs/${orgName}/understanding/README|understanding]]. They explain; the fact notes prove.\n`);
   writeText(path.join(orgDir, 'Components.base'), `filters:\n  and:\n    - file.inFolder("orgs/${orgName}/facts")\nviews:\n  - type: table\n    name: "All components"\n    groupBy:\n      property: note.type\n      direction: ASC\n    order:\n      - file.name\n      - note.type\n      - note.object\n      - note.source\n`);
   const u = path.join(orgDir, 'understanding', 'README.md');
   if (!exists(u)) writeText(u, `# Understanding of ${orgName}\n\nThe Cartographer writes here: how business processes work in this org, in plain language, with links to the fact notes that prove each statement. A statement without a link to a fact is not allowed.\n`);
@@ -254,32 +307,158 @@ export function brainFact(root, cfg, orgName, ref) {
   return { org: orgName, ref, fresh, built_at: index.built_at, ...c };
 }
 
-/** Search the index by words (API names, labels, objects). */
-export function search(root, cfg, orgName, terms) {
-  const index = readJson(path.join(layout(root).orgVault(orgName), '_index.json'), null) || fail(`No Org Brain for "${orgName}".`, 'NO_BRAIN');
-  const words = terms.map((t) => t.toLowerCase()).filter((t) => t.length > 2);
-  const hits = [];
-  for (const [ref, c] of Object.entries(index.components)) {
-    const hay = `${c.name} ${c.facts.label || ''} ${c.object || ''}`.toLowerCase();
-    const score = words.reduce((n, w) => n + (hay.includes(w) ? (c.name.toLowerCase() === w ? 3 : 1) : 0), 0);
-    if (score) hits.push({ ref, score, type: c.type, object: c.object, path: c.path, note: c.note });
-  }
-  return hits.sort((a, b) => b.score - a.score).slice(0, 60);
+const STOP_WORDS = new Set(['this', 'that', 'with', 'from', 'when', 'then', 'than', 'have', 'does', 'should', 'would', 'could', 'into', 'also', 'only', 'each', 'some', 'such', 'very', 'just',
+  'been', 'were', 'they', 'them', 'their', 'there', 'which', 'while', 'where', 'what', 'will', 'must', 'need', 'needs', 'make', 'made', 'using', 'used', 'after', 'before', 'about', 'again', 'still']);
+
+/** Names in free text that look like API names (they contain an underscore): Escalation_Reason__c, Case_AfterSave_Notify_Owner, Require_Reason. */
+export const apiNames = (text) => uniq(String(text || '').match(/\b[A-Za-z][A-Za-z0-9]*(?:_+[A-Za-z0-9]+)+\b/g) || []);
+
+/**
+ * Search terms for a ticket: API names written anywhere in the ticket first,
+ * then the meaningful words of the title.
+ */
+export function packTerms(ticket, extra = []) {
+  const text = `${ticket.title || ''}\n${ticket.description || ''}\n${(ticket.acceptance_criteria || []).map((a) => a.text).join('\n')}`;
+  const words = String(ticket.title || '').split(/[^A-Za-z0-9_]+/).filter((w) => w.length > 3 && !STOP_WORDS.has(w.toLowerCase()));
+  return uniq([...extra, ...apiNames(text), ...words]);
 }
+
+/**
+ * Search the index by words (API names, labels, objects).
+ * An exact API name always ranks first. That includes the part after the dot:
+ * a field, validation rule or record type is stored as "Object.Name", and
+ * tickets name it without the object. Other words count by how rare they are
+ * in this org: a word that matches one component says more than a word that
+ * matches fifty. Every hit says why it matched.
+ */
+export function search(root, cfg, orgName, terms, { limit = 60 } = {}) {
+  const index = readJson(path.join(layout(root).orgVault(orgName), '_index.json'), null) || fail(`No Org Brain for "${orgName}".`, 'NO_BRAIN');
+  const words = uniq(terms.map((t) => String(t).toLowerCase()).filter((t) => t.length > 2));
+  const entries = Object.entries(index.components).map(([ref, c]) => ({ ref, c, name: c.name.toLowerCase(), leaf: c.name.split('.').pop().toLowerCase(), hay: `${c.name} ${c.facts.label || ''} ${c.object || ''}`.toLowerCase() }));
+  const total = entries.length || 1;
+  const frequency = new Map(words.map((w) => [w, entries.reduce((n, e) => n + (e.hay.includes(w) ? 1 : 0), 0)]));
+  const hits = [];
+  for (const e of entries) {
+    let score = 0;
+    const why = [];
+    for (const w of words) {
+      if (!e.hay.includes(w)) continue;
+      const exact = e.name === w || e.leaf === w;
+      const rarity = Math.log(1 + total / frequency.get(w));
+      score += exact ? 20 + rarity : rarity;
+      why.push(exact ? `exact name "${w}"` : `"${w}"`);
+    }
+    if (score) hits.push({ ref: e.ref, score: Math.round(score * 100) / 100, exact: why.some((w) => w.startsWith('exact')), why, type: e.c.type, object: e.c.object, path: e.c.path, note: e.c.note });
+  }
+  return hits.sort((a, b) => b.score - a.score || a.ref.localeCompare(b.ref)).slice(0, limit);
+}
+
+/**
+ * Existing Apex test classes that exercise the given components.
+ * For a class: its own tests. For anything that belongs to an object (a flow,
+ * a validation rule, a field, a trigger): every test class that queries the
+ * object, depends on it, or is named after it.
+ */
+export function testsFor(root, cfg, orgName, refs) {
+  const index = readJson(path.join(layout(root).orgVault(orgName), '_index.json'), null) || fail(`No Org Brain for "${orgName}".`, 'NO_BRAIN');
+  const comps = index.components;
+  const tests = Object.values(comps).filter((c) => c.type === 'ApexClass' && c.facts.is_test);
+  const by = {};
+  for (const ref of refs) {
+    const c = comps[ref];
+    const { type, name } = parseRef(ref);
+    const names = new Set();
+    if (type === 'ApexClass') {
+      for (const u of c?.used_by || []) if (comps[u]?.facts?.is_test) names.add(comps[u].name);
+      if (comps[`ApexClass:${name}Test`]) names.add(`${name}Test`);
+    } else {
+      const object = c?.object || (type === 'CustomObject' ? name : name.includes('.') ? name.split('.')[0] : null);
+      if (object) {
+        const stem = object.replace(/__c$/, '').toLowerCase();
+        for (const t of tests) if ((t.facts.soql_objects || []).includes(object) || (t.deps || []).includes(`CustomObject:${object}`) || t.name.toLowerCase().startsWith(stem)) names.add(t.name);
+      }
+    }
+    by[ref] = [...names].sort();
+  }
+  return { org: orgName, tests: uniq(Object.values(by).flat()).sort(), by_component: by };
+}
+
+/** Org whose Brain a ticket works from: the build org when it has one, else the base. */
+export const packOrg = (root, cfg) => (exists(path.join(layout(root).orgVault(cfg.pipeline.build_org), '_index.json')) ? cfg.pipeline.build_org : cfg.pipeline.brain_base);
 
 /** Write the context pack of a ticket: the slice of the Brain it needs. */
 export function contextPack(root, cfg, key, { terms = [], refs = [] } = {}) {
-  const orgName = exists(path.join(layout(root).orgVault(cfg.pipeline.build_org), '_index.json')) ? cfg.pipeline.build_org : cfg.pipeline.brain_base;
+  const orgName = packOrg(root, cfg);
   const index = readJson(path.join(layout(root).orgVault(orgName), '_index.json'), null) || fail(`No Org Brain yet. Build it first: orgtomo brain build ${cfg.pipeline.brain_base}`, 'NO_BRAIN');
-  const seeds = uniq([...refs.filter((r) => index.components[r]), ...search(root, cfg, orgName, terms).slice(0, 15).map((h) => h.ref)]);
+  const found = search(root, cfg, orgName, terms);
+  const why = new Map(found.map((h) => [h.ref, h.why.join(', ')]));
+  const named = refs.filter((r) => index.components[r]);
+  for (const r of named) why.set(r, 'named by the Analyst');
+  // Components the Analyst named and exact API names always make the pack; the rest fills up to 15 by rank.
+  const seeds = uniq([...named, ...found.filter((h) => h.exact).map((h) => h.ref), ...found.slice(0, 15).map((h) => h.ref)]).slice(0, 40);
   const ring = uniq(seeds.flatMap((r) => [...index.components[r].deps, ...index.components[r].used_by])).filter((r) => !seeds.includes(r)).slice(0, 40);
   const objects = uniq([...seeds, ...ring].map((r) => index.components[r]?.object).filter(Boolean));
-  const line = (r) => { const c = index.components[r]; const f = c.facts; const bits = [f.trigger_type, f.field_type, f.sharing, f.status, f.active && `active ${f.active}`, f.events?.join('/')].filter(Boolean); return `- ${link(orgName, r)} \`${r}\`${bits.length ? ` (${bits.join(', ')})` : ''}  \n  source: \`${c.path}\``; };
+  const line = (r, reason) => { const c = index.components[r]; const f = c.facts; const bits = [f.trigger_type, f.field_type, f.sharing, f.status, f.active && `active ${f.active}`, f.events?.join('/')].filter(Boolean); return `- ${link(orgName, r)} \`${r}\`${bits.length ? ` (${bits.join(', ')})` : ''}${reason ? `  \n  matched: ${reason}` : ''}  \n  source: \`${c.path}\``; };
   const dir = layout(root).ticketDir(key);
   const agents = Object.keys(cfg.agents.agents);
   const lessonCount = agents.reduce((n, a) => n + lessonsFor(root, a).length, 0);
-  writeText(path.join(dir, 'context-pack.md'), `${formatFrontmatter({ type: 'context-pack', ticket: key, org: orgName, brain_built: index.built_at, at: nowIso() })}# Context pack for ${key}\n\nFrom the Org Brain of **${orgName}** (built ${index.built_at.slice(0, 10)}). This is a starting map, not proof: cite a fact only after \`orgtomo evidence brain ${key} <Type:Name>\` confirms it is fresh, or after checking the org.\n\n## Components that match the ticket\n\n${seeds.map(line).join('\n') || '_No match by name. Search with: orgtomo brain search <words>_'}\n\n## One step away (used by, or using, the above)\n\n${ring.map(line).join('\n') || '_None._'}\n\n## Everything that runs on the objects involved\n\n${objects.filter((o) => (index.objects_with_automation || []).includes(o)).map((o) => `- [[orgs/${orgName}/facts/_automation/${o}|What runs on ${o}]]`).join('\n') || '_No automation recorded on these objects._'}\n\n## Also read\n\n${exists(path.join(dir, 'updates.md')) ? `- [[tickets/${key}/updates]] (meeting decisions, human answers, loop reasons)\n` : ''}- Your lessons skill (${lessonCount} approved lesson(s) across the team)\n`);
+  const orgDir = layout(root).orgVault(orgName);
+  const hubs = objects.filter((o) => exists(path.join(orgDir, 'objects', `${o}.md`))).map((o) => `- [[orgs/${orgName}/objects/${o}|${o}: everything about this object]]`);
+  const processes = exists(path.join(orgDir, 'business', 'processes')) ? listFiles(path.join(orgDir, 'business', 'processes')).filter((f) => f.endsWith('.md')).map((f) => `- [[orgs/${orgName}/business/processes/${f.replace(/\.md$/, '')}]]`) : [];
+  writeText(path.join(dir, 'context-pack.md'), `${formatFrontmatter({ type: 'context-pack', ticket: key, org: orgName, brain_built: index.built_at, at: nowIso() })}# Context pack for ${key}\n\nFrom the Org Brain of **${orgName}** (built ${index.built_at.slice(0, 10)}). This is a starting map, not proof: cite a fact only after \`orgtomo evidence brain ${key} <Type:Name>\` confirms it is fresh, or after checking the org.\n\n## Components that match the ticket\n\n${seeds.map((r) => line(r, why.get(r))).join('\n') || '_No match by name. Search with: orgtomo brain search <words>_'}\n\n## One step away (used by, or using, the above)\n\n${ring.map((r) => line(r)).join('\n') || '_None._'}\n\n## Everything that runs on the objects involved\n\n${objects.filter((o) => (index.objects_with_automation || []).includes(o)).map((o) => `- [[orgs/${orgName}/facts/_automation/${o}|What runs on ${o}]]`).join('\n') || '_No automation recorded on these objects._'}\n\n## The objects involved\n\n${hubs.join('\n') || '_No hub pages yet. They appear after the next Brain build._'}\n${processes.length ? `\n## How the business uses this org\n\n${processes.join('\n')}\n` : ''}\n## Also read\n\n${exists(path.join(dir, 'updates.md')) ? `- [[tickets/${key}/updates]] (meeting decisions, human answers, loop reasons)\n` : ''}- Your lessons skill (${lessonCount} approved lesson(s) across the team)\n`);
   return { ticket: key, org: orgName, matched: seeds.length, nearby: ring.length, file: `vault/tickets/${key}/context-pack.md` };
+}
+
+/** One object with everything the index knows about it (for the control panel and the hub page). */
+export function objectView(root, cfg, orgName, object) {
+  const index = readJson(path.join(layout(root).orgVault(orgName), '_index.json'), null) || fail(`No Org Brain for "${orgName}".`, 'NO_BRAIN');
+  const all = Object.entries(index.components).filter(([, c]) => c.object === object || (c.type === 'CustomObject' && c.name === object)).map(([ref, c]) => ({ ref, ...c }));
+  const byType = {};
+  for (const c of all) (byType[c.type] ||= []).push({ ref: c.ref, name: c.name, status: c.facts.status, active: c.facts.active, trigger_type: c.facts.trigger_type, field_type: c.facts.field_type });
+  const tests = testsFor(root, cfg, orgName, [`CustomObject:${object}`]).tests;
+  return { org: orgName, object, counts: Object.fromEntries(Object.entries(byType).map(([t, l]) => [t, l.length])), components: byType, tests, tickets: ticketsTouching(root, index, object), has_automation: (index.objects_with_automation || []).includes(object) };
+}
+
+/** Tickets whose understanding or build names a component of this object. */
+function ticketsTouching(root, index, object) {
+  const dir = layout(root).tickets;
+  if (!exists(dir)) return [];
+  const out = [];
+  for (const key of fs.readdirSync(dir)) {
+    const refs = [];
+    for (const [file, pick] of [['01-understanding.json', (j) => (j.affected || []).map((a) => a.component)], ['04-build.json', (j) => (j.components || []).map((c) => c.ref)]]) {
+      const f = path.join(dir, key, file);
+      if (exists(f)) { try { refs.push(...pick(JSON.parse(readText(f)))); } catch { /* unfinished file */ } }
+    }
+    if (refs.some((r) => index.components[r]?.object === object || r === `CustomObject:${object}`)) out.push(key);
+  }
+  return out.sort();
+}
+
+/** One hub page per object: the place a person or an agent starts from. */
+function writeHubs(root, orgName, index) {
+  const L = layout(root);
+  const orgDir = L.orgVault(orgName);
+  const notes = exists(path.join(orgDir, 'understanding')) ? listFiles(path.join(orgDir, 'understanding')).filter((f) => f.endsWith('.md') && f !== 'README.md') : [];
+  const covers = notes.map((f) => ({ f, covers: [].concat(parseFrontmatter(readText(path.join(orgDir, 'understanding', f))).data.covers || []) }));
+  const tests = Object.values(index.components).filter((c) => c.type === 'ApexClass' && c.facts.is_test);
+  // hub pages of objects that are no longer part of the map go away with them
+  const hubDir = path.join(orgDir, 'objects');
+  if (exists(hubDir)) for (const f of fs.readdirSync(hubDir)) if (f.endsWith('.md') && !(index.objects || []).includes(f.slice(0, -3))) fs.rmSync(path.join(hubDir, f), { force: true });
+  for (const o of index.objects || []) {
+    const mine = Object.values(index.components).filter((c) => c.object === o);
+    const counts = {};
+    for (const c of mine) counts[c.type] = (counts[c.type] || 0) + 1;
+    const stem = o.replace(/__c$/, '').toLowerCase();
+    const myTests = tests.filter((t) => (t.facts.soql_objects || []).includes(o) || (t.deps || []).includes(`CustomObject:${o}`) || t.name.toLowerCase().startsWith(stem)).map((t) => t.name).sort();
+    const touching = ticketsTouching(root, index, o);
+    const about = covers.filter((n) => n.covers.includes(o)).map((n) => `- [[orgs/${orgName}/understanding/${n.f.replace(/\.md$/, '')}]]`);
+    const start = [
+      index.components[`CustomObject:${o}`] ? `- ${link(orgName, `CustomObject:${o}`)}: the object itself` : null,
+      (index.objects_with_automation || []).includes(o) ? `- [[orgs/${orgName}/facts/_automation/${o}|What runs when a record is saved]] ([[orgs/${orgName}/maps/${o}.canvas|as a map]])` : null,
+    ].filter(Boolean);
+    writeText(path.join(orgDir, 'objects', `${o}.md`), `${formatFrontmatter({ type: 'object-hub', object: o, org: orgName, components: mine.length, tags: ['orgtomo/hub'] })}# ${o}\n\n> Generated. One page per object: start here. The next Brain build overwrites it; write your own notes in \`understanding/\`.\n\n| What | Count |\n|---|---|\n${Object.entries(counts).sort().map(([t, n]) => `| ${t} | ${n} |`).join('\n') || '| (nothing parsed) | 0 |'}\n\n## Start here\n\n${start.join('\n') || '_No object file and no automation were retrieved for this object._'}\n\n## Everything on this object\n\n\`\`\`base\nfilters:\n  and:\n    - file.inFolder("orgs/${orgName}/facts")\n    - 'object == "${o}"'\nviews:\n  - type: table\n    name: "On ${o}"\n    groupBy:\n      property: note.type\n      direction: ASC\n    order:\n      - file.name\n      - note.type\n      - note.source\n\`\`\`\n\n## Tests that touch it (${myTests.length})\n\n${myTests.slice(0, 80).map((t) => `- ${index.components[`ApexClass:${t}`] ? link(orgName, `ApexClass:${t}`) : t}`).join('\n') || '_None found by static analysis._'}\n\n## Tickets that touched it\n\n${touching.map((k) => `- [[tickets/${k}/status|${k}]]`).join('\n') || '_None yet._'}\n\n## What we understand about it\n\n${about.join('\n') || '_No understanding note covers this object yet._'}\n`);
+  }
 }
 
 /** Compare the Brain of two orgs. */

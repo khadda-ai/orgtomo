@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { makeWorkspace, writeOut, cleanup } from './helpers.mjs';
+import { makeWorkspace, writeOut, cleanup, intakeOf, SELF_REVIEW } from './helpers.mjs';
 import * as T from '../engine/lib/ticket.js';
 import * as O from '../engine/lib/org.js';
 import * as B from '../engine/lib/brain.js';
@@ -16,7 +16,7 @@ const understanding = (key, ev, extra = {}) => ({
   key, summary_plain: 'Non urgent cases are wrongly marked as automatically escalated today.', summary_technical: 'CaseService.applyEscalation stamps Escalation_Reason__c for the wrong priorities.',
   acceptance_criteria: [{ id: 'AC1', text: 'Only High gets Auto.', source: 'ticket' }], examples: [{ title: 'Medium', given: 'a Medium case', when: 'saved', then: 'no reason' }],
   affected: [{ component: 'ApexClass:CaseService', why: 'holds the rule', proof: [ev] }], open_questions: [], risk: 'medium', lite_candidate: false,
-  claims: [{ id: 'C1', text: 'CaseService is present in the build org source.', proof: [ev] }], ...extra,
+  intake: intakeOf(ev), claims: [{ id: 'C1', text: 'CaseService is present in the build org source.', proof: [ev] }], ...extra,
 });
 function start(key, type) {
   const ws = makeWorkspace();
@@ -147,7 +147,7 @@ test('a failing test loops back to plan, at most loop.max times, then stops with
         writeOut(ws, key, '02-repro', { key, mode: 'feature', reproduced: 'not_applicable', org: 'dev', steps: [{ n: 1, action: 'Read current cases', expected: 'n/a', actual: 'n/a', proof: [q] }], data_used: [], before_state: { text: 'Today every High case gets Auto and nothing else is set.', proof: [q] }, claims: [] });
         T.submit(root, cfg, key, 'repro', { actor: 'reproducer' }); leadOk(ws, key, 'repro');
       }
-      writeOut(ws, key, '03-plan', { key, approach: `Round ${n}: adjust CaseService.applyEscalation to the requested rule and cover it with tests.`, components: [{ ref: 'ApexClass:CaseService', change: 'modify', what: 'change rule', why: 'Needed for AC1' }], order: ['ApexClass:CaseService'], tests: [{ id: 'T1', covers: ['AC1'], kind: 'apex', description: 'rule holds' }], manual_steps: [], risks: [], rollback: 'Redeploy the backup of CaseService.', claims: [] });
+      writeOut(ws, key, '03-plan', { key, approach: `Round ${n}: adjust CaseService.applyEscalation to the requested rule and cover it with tests.`, components: [{ ref: 'ApexClass:CaseService', change: 'modify', what: 'change rule', why: 'Needed for AC1' }], order: ['ApexClass:CaseService'], tests: [{ id: 'T1', covers: ['AC1'], kind: 'apex', description: 'rule holds' }], manual_steps: [], risks: [], rollback: 'Redeploy the backup of CaseService.', regression_tests: ['CaseServiceTest'], self_review: SELF_REVIEW, claims: [] });
       assert.equal(T.submit(root, cfg, key, 'plan', { actor: 'planner' }).passed, true);
       leadOk(ws, key, 'plan'); T.human.approve(root, cfg, key, {});
       const bk = O.backup(root, cfg, { key, refs: ['ApexClass:CaseService'], actor: 'baseline' });
@@ -194,7 +194,7 @@ test('build gates: scope, backup, naming, comments, forbidden patterns, stale de
     const q = O.query(root, cfg, { org: 'dev', soql: 'SELECT Id FROM Case LIMIT 1', key, actor: 'reproducer' }).evidence;
     writeOut(ws, key, '02-repro', { key, mode: 'feature', reproduced: 'not_applicable', org: 'dev', steps: [{ n: 1, action: 'Read', expected: 'n/a', actual: 'n/a', proof: [q] }], data_used: [], before_state: { text: 'There is no routing class in the org today.', proof: [q] }, claims: [] });
     T.submit(root, cfg, key, 'repro', { actor: 'reproducer' }); leadOk(ws, key, 'repro');
-    const plan = { key, approach: 'Add a routing class next to CaseService and call it from the existing service method.', components: [{ ref: 'ApexClass:caseRouter', change: 'new', what: 'routing logic', why: 'Needed for AC1' }, { ref: 'ApexClass:Missing', change: 'modify', what: 'x change', why: 'Needed for AC1' }, { ref: 'ApexClass:CaseService', change: 'new', what: 'x change', why: 'Needed for AC1' }], order: ['ApexClass:caseRouter'], tests: [{ id: 'T1', covers: ['AC2'], kind: 'apex', description: 'routing works' }], manual_steps: [], risks: [], rollback: 'Delete the new class again.', claims: [] };
+    const plan = { key, approach: 'Add a routing class next to CaseService and call it from the existing service method.', components: [{ ref: 'ApexClass:caseRouter', change: 'new', what: 'routing logic', why: 'Needed for AC1' }, { ref: 'ApexClass:Missing', change: 'modify', what: 'x change', why: 'Needed for AC1' }, { ref: 'ApexClass:CaseService', change: 'new', what: 'x change', why: 'Needed for AC1' }], order: ['ApexClass:caseRouter'], tests: [{ id: 'T1', covers: ['AC2'], kind: 'apex', description: 'routing works' }], manual_steps: [], risks: [], rollback: 'Delete the new class again.', regression_tests: ['CaseServiceTest'], self_review: SELF_REVIEW, claims: [] };
     writeOut(ws, key, '03-plan', plan);
     let r = T.submit(root, cfg, key, 'plan', { actor: 'planner' });
     const why = Object.fromEntries(r.failed.map((f) => [f.id, f.details.join(' | ')]));

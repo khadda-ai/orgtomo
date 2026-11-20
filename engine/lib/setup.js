@@ -37,10 +37,19 @@ export function setup(root, { answers } = {}) {
   }
   initVault(root, cfg);
   const gi = path.join(root, '.gitignore');
-  if (!exists(gi)) writeText(gi, '# Orgtomo workspace: keep org data and engine state out of git\n.orgtomo/\n.sf/\n.sfdx/\nnode_modules/\n');
+  if (!exists(gi)) writeText(gi, '# Orgtomo workspace: keep org data and engine state out of git\n.orgtomo/\n.orgtomo-tmp/\n.sf/\n.sfdx/\nnode_modules/\n');
   const { errors, warnings } = validateConfig(cfg);
   const synced = errors.length ? null : sync(root, cfg);
-  return { workspace: root, created, errors, warnings, synced: synced ? synced.written.length : 0 };
+  const base = cfg.pipeline.brain_base;
+  const study = cfg.pipeline.discover?.org;
+  const next = [
+    'orgtomo doctor --orgs                 checks every org, including one real retrieve',
+    `orgtomo brain sync ${base}                 builds the map of the org`,
+    study ? `orgtomo discover run ${study} --retrieve   studies how the business uses the org and writes the questions only you can answer` : 'orgtomo discover run <org> --retrieve   optional: study how the business uses one org',
+    'claude plugin install orgtomo@orgtomo --scope project   (in this folder, so the plugins load here and nowhere else; see docs/SETUP.md)',
+    'orgtomo obsidian status               optional: a nicer way to browse the vault',
+  ];
+  return { workspace: root, created, errors, warnings, synced: synced ? synced.written.length : 0, next };
 }
 
 /** Ask the questions a first-time user needs, in the terminal. */
@@ -74,13 +83,20 @@ export async function wizard() {
   const phones = (await ask('Allowed test phone numbers, comma separated', '+15555550100')).split(',').map((x) => x.trim()).filter(Boolean);
   const meet = await pick('\nMeeting notes: bring decisions from meetings into tickets?', ['off', 'granola', 'zoom', 'google-meet', 'file'], 'off');
   const people = await pick('People profiles: tailor drafts to each reader?', ['off', 'on'], 'off');
+  console.log('\nBusiness discovery (optional). Orgtomo can study one org end to end: it groups the objects into areas, describes what runs on them,');
+  console.log('and writes down the questions only you can answer. It reads metadata and record totals, never record values.');
+  const study = (await ask(`Which org should it study? (one of: ${names.join(', ')}; empty = decide later)`, base)).toLowerCase();
+  console.log('\nObsidian (optional) is a free app for browsing the vault: a graph of what is connected to what, a map per object,');
+  console.log('sortable tables, and click-through from a field to everything that uses it. Orgtomo works the same without it.');
+  const obsidian = await pick('Install Obsidian now if a package manager can do it?', ['no', 'yes'], 'no');
   rl.close();
   const d = (name) => loadDefaultRaw(name);
   return {
     orgs: { company, orgs },
-    pipeline: { ...d('pipeline'), build_org: build, brain_base: base, drift_check: names.filter((n) => orgs[n].role === 'production'), targets },
+    pipeline: { ...d('pipeline'), build_org: build, brain_base: base, drift_check: names.filter((n) => orgs[n].role === 'production'), targets, discover: { ...d('pipeline').discover, org: names.includes(study) ? study : '' } },
     safety: { ...d('safety'), allowed_emails: emails, allowed_phones: phones },
     features: { ...d('features'), meetings: { ...d('features').meetings, enabled: meet !== 'off', provider: meet === 'off' ? 'granola' : meet }, people_profiles: { enabled: people === 'on' } },
+    extras: { obsidian: obsidian === 'yes' },
   };
 }
 const loadDefaultRaw = (name) => JSON.parse(JSON.stringify(loadDefault(name)));

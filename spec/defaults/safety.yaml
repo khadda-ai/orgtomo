@@ -2,12 +2,18 @@
 email_mode: blocked          # blocked        = sandbox must have e-mail delivery off (checked by a canary)
                              # allowlist_only = delivery may be on; only addresses below may ever appear
 canary_max_age_minutes: 30
+verify_org_max_age_minutes: 720   # how long "the org itself says it is a sandbox" is trusted before asking again
 
 # Only these may appear in test data, scripts, browser input and drafts.
 # Globs are allowed: "you+*@example.com".
 allowed_emails:
   - "tester+*@example.com"
 allowed_email_domains: []
+# Tickets about address validation need broken addresses: a dot in front, a dot
+# at the end, two dots in a row. With this on, such a variant of an allowed
+# address is allowed too (the dots are removed, and what is left must be on the
+# list above). Broken addresses cannot receive mail.
+allowed_email_shapes: false
 allowed_phones:
   - "+15555550100"
 test_person:
@@ -23,8 +29,17 @@ mask:
   mask_sandbox_reads: true
   keep_fields: ["Id", "CaseNumber", "Status", "RecordTypeId", "CreatedDate", "LastModifiedDate"]
 
+docs:
+  require_verified: false    # true = a documentation quote the engine cannot find on the page fails the gate
+
 browser:
-  provider: playwright       # playwright | none
+  provider: playwright       # playwright           = its own browser, profile kept in .orgtomo/browser-profile
+                             # playwright-extension = attach to a browser you already run and are signed in to
+                             # none                 = no browser for agents
+  login: frontdoor           # frontdoor = the engine opens sandbox pages through a one-time link made from the
+                             #             CLI's own login, so agents need no password or passkey
+                             # manual    = you sign in to the agent browser yourself
+  session_minutes: 60        # a new one-time link is used when the last sign-in is older than this
   claude_in_chrome: false    # opt-in, separate Chrome profile only, never accepted as evidence
   deny_path_patterns:        # never opened by agents
     - "/lightning/setup/SecurityRemoteProxy*"

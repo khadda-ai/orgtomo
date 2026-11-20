@@ -1,12 +1,74 @@
 {
-  "$id": "baseline", "title": "Baseline output (state before any change)", "type": "object",
-  "required": ["key", "backups", "tests"], "additionalProperties": false,
+  "$id": "baseline",
+  "title": "Baseline output (state before any change)",
+  "type": "object",
+  "required": [
+    "key",
+    "backups",
+    "tests"
+  ],
+  "additionalProperties": false,
   "properties": {
-    "key": { "$ref": "_defs#/$defs/ticketKey" },
-    "backups": { "type": "array", "items": { "type": "object", "required": ["ref", "status"], "additionalProperties": false,
-      "properties": { "ref": { "$ref": "_defs#/$defs/componentRef" }, "status": { "enum": ["backed_up", "new"] }, "evidence": { "type": "string", "pattern": "^E[0-9]{3,}$" } } } },
-    "tests": { "type": "array", "items": { "type": "object", "required": ["name", "outcome"], "additionalProperties": false,
-      "properties": { "name": { "type": "string" }, "outcome": { "enum": ["pass", "fail"] }, "evidence": { "type": "string" } } } },
-    "notes": { "type": "string" }
+    "key": {
+      "$ref": "_defs#/$defs/ticketKey"
+    },
+    "backups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ref",
+          "status"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "ref": {
+            "$ref": "_defs#/$defs/componentRef"
+          },
+          "status": {
+            "enum": [
+              "backed_up",
+              "new",
+              "failed"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "pattern": "^E[0-9]{3,}$"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "outcome"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "pass",
+              "fail"
+            ]
+          },
+          "evidence": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": "string"
+    }
   }
 }

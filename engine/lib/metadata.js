@@ -27,6 +27,19 @@ export const FOLDERS = [
   ['customPermissions', 'CustomPermission', '.customPermission-meta.xml'],
   ['namedCredentials', 'NamedCredential', '.namedCredential-meta.xml'],
   ['remoteSiteSettings', 'RemoteSiteSetting', '.remoteSite-meta.xml'],
+  // Process and access metadata (folder and suffix as in the Salesforce CLI metadata registry).
+  ['approvalProcesses', 'ApprovalProcess', '.approvalProcess-meta.xml'],
+  ['assignmentRules', 'AssignmentRules', '.assignmentRules-meta.xml'],
+  ['autoResponseRules', 'AutoResponseRules', '.autoResponseRules-meta.xml'],
+  ['escalationRules', 'EscalationRules', '.escalationRules-meta.xml'],
+  ['workflows', 'Workflow', '.workflow-meta.xml'],
+  ['pathAssistants', 'PathAssistant', '.pathAssistant-meta.xml'],
+  ['roles', 'Role', '.role-meta.xml'],
+  ['permissionsetgroups', 'PermissionSetGroup', '.permissionsetgroup-meta.xml'],
+  ['installedPackages', 'InstalledPackage', '.installedPackage-meta.xml'],
+  ['duplicateRules', 'DuplicateRule', '.duplicateRule-meta.xml'],
+  ['entitlementProcesses', 'EntitlementProcess', '.entitlementProcess-meta.xml'],
+  ['connectedApps', 'ConnectedApp', '.connectedApp-meta.xml'],
 ];
 /** Folders whose components are bundles (one folder per component). */
 export const BUNDLES = [['lwc', 'LightningComponentBundle'], ['aura', 'AuraDefinitionBundle']];

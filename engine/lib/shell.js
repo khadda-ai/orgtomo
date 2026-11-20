@@ -11,10 +11,17 @@ const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish']);
  * @returns {{ segments: {argv: string[], env: Record<string,string>, redirects: string[], raw: string}[], dynamic: boolean, problems: string[] }}
  */
 export function analyze(command, depth = 0) {
-  const result = { segments: [], dynamic: false, problems: [], scripts: [] };
+  const result = { segments: [], dynamic: false, problems: [], scripts: [], heredocs: [], text: command };
   if (depth > 3) { result.problems.push('nested shells too deep'); return result; }
+  const pre = stripHeredocs(command);
+  result.heredocs = pre.heredocs;
+  result.problems.push(...pre.problems);
+  result.text = pre.text;
+  command = pre.text;
   if (/`|\$\(|<\(|>\(/.test(stripSingleQuoted(command))) result.dynamic = true;
-  if (/<<-?\s*['"]?\w+/.test(command)) result.heredoc = true;
+  // An unquoted here-document is expanded by the shell, so substitutions inside it run.
+  if (pre.heredocs.some((h) => !h.quoted && /`|\$\(/.test(h.body))) result.dynamic = true;
+  if (pre.heredocs.length) result.heredoc = true;
 
   let argv = [];
   let redirects = [];
@@ -100,6 +107,40 @@ function finish(argv, redirects, raw, result, depth) {
 
 export const base = (p) => (p || '').split('/').pop();
 const stripSingleQuoted = (s) => s.replace(/'[^']*'/g, "''");
+/** Same length as the input, with everything inside quotes replaced by spaces. */
+const blankQuoted = (s) => s.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, (m) => m[0] + ' '.repeat(Math.max(0, m.length - 2)) + (m.length > 1 ? m[0] : ''));
+
+/**
+ * Take here-document bodies out of a command. A body is input for the command
+ * on the line above it; it is never a command itself. A quoted delimiter
+ * (<<'EOF') means the shell passes the body through untouched.
+ * @returns {{text: string, heredocs: {tag: string, quoted: boolean, body: string}[], problems: string[]}}
+ */
+export function stripHeredocs(command) {
+  const lines = String(command).split('\n');
+  const out = [];
+  const heredocs = [];
+  const problems = [];
+  for (let i = 0; i < lines.length; i++) {
+    out.push(lines[i]);
+    // Only an operator outside quotes starts a here-document. The delimiter may itself be quoted.
+    const blank = blankQuoted(lines[i]);
+    const real = [...lines[i].matchAll(/(?<!<)<<(?!<)(-?)\s*(?:'([A-Za-z_][A-Za-z0-9_]*)'|"([A-Za-z_][A-Za-z0-9_]*)"|([A-Za-z_][A-Za-z0-9_]*))/g)]
+      .filter((m) => blank.slice(m.index, m.index + 2) === '<<');
+    for (const m of real) {
+      const tag = m[2] || m[3] || m[4];
+      const body = [];
+      let closed = false;
+      while (++i < lines.length) {
+        if ((m[1] ? lines[i].replace(/^\t+/, '') : lines[i]) === tag) { closed = true; break; }
+        body.push(lines[i]);
+      }
+      if (!closed) problems.push('unterminated here-document');
+      heredocs.push({ tag, quoted: Boolean(m[2] || m[3]), body: body.join('\n') });
+    }
+  }
+  return { text: out.join('\n'), heredocs, problems };
+}
 
 /** Read `--flag value`, `--flag=value` or `-f value` from argv. Returns undefined when absent. */
 export function flag(argv, ...names) {

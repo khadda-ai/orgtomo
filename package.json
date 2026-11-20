@@ -30,7 +30,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test tests/e2e-ticket.test.mjs tests/flow.test.mjs tests/guards.test.mjs tests/hook.test.mjs tests/knowledge.test.mjs tests/ui.test.mjs",
+    "test": "node --test tests/e2e-ticket.test.mjs tests/flow.test.mjs tests/guards.test.mjs tests/hook.test.mjs tests/knowledge.test.mjs tests/ui.test.mjs tests/v020.test.mjs",
     "check": "node scripts/check.mjs"
   },
   "files": [
