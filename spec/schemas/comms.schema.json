@@ -1,0 +1,11 @@
+{
+  "$id": "comms", "title": "Scribe output: drafts only, never posted", "type": "object",
+  "required": ["key", "drafts", "never_posted"], "additionalProperties": false,
+  "properties": {
+    "key": { "$ref": "_defs#/$defs/ticketKey" },
+    "never_posted": { "const": true },
+    "drafts": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["channel", "audience", "level", "text"], "additionalProperties": false,
+      "properties": { "channel": { "enum": ["tracker", "chat", "email"] }, "audience": { "type": "array", "items": { "type": "string" } },
+        "level": { "enum": ["non_technical", "technical"] }, "profile_used": { "type": "boolean" }, "text": { "type": "string", "minLength": 20 } } } }
+  }
+}

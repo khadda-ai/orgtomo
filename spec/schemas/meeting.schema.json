@@ -1,0 +1,21 @@
+{
+  "$id": "meeting", "title": "Notetaker output for one meeting", "type": "object",
+  "required": ["meeting_id", "title", "date", "provider", "attendees", "summary", "decisions", "action_items", "ticket_links"], "additionalProperties": false,
+  "properties": {
+    "meeting_id": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}" },
+    "provider": { "type": "string" },
+    "url": { "type": "string" },
+    "attendees": { "type": "array", "items": { "type": "string" } },
+    "summary": { "type": "string", "minLength": 20 },
+    "decisions": { "type": "array", "items": { "type": "object", "required": ["text"], "additionalProperties": false,
+      "properties": { "text": { "type": "string" }, "said_by": { "type": "string" }, "tickets": { "type": "array", "items": { "type": "string" } } } } },
+    "action_items": { "type": "array", "items": { "type": "object", "required": ["text"], "additionalProperties": false,
+      "properties": { "text": { "type": "string" }, "owner": { "type": "string" }, "tickets": { "type": "array", "items": { "type": "string" } } } } },
+    "ticket_links": { "type": "array", "items": { "type": "object", "required": ["key", "basis", "update"], "additionalProperties": false,
+      "properties": { "key": { "$ref": "_defs#/$defs/ticketKey" }, "basis": { "enum": ["explicit", "inferred"] }, "update": { "type": "string", "minLength": 10 }, "reason": { "type": "string" } } } },
+    "profile_notes": { "type": "array", "items": { "type": "object", "required": ["person", "note"], "additionalProperties": false,
+      "properties": { "person": { "type": "string" }, "note": { "type": "string" } } } }
+  }
+}

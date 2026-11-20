@@ -1,0 +1,24 @@
+# Feature switches. Every one of these is also a toggle in the UI.
+lite_path: true
+
+self_learning:
+  enabled: true
+  auto_apply_min_observations: 2   # a lesson backed by this many engine-recorded observations applies itself;
+                                   # lessons from your own feedback always apply; everything else waits for you
+
+meetings:
+  enabled: false
+  provider: granola                # granola | zoom | google-meet | file
+  store_transcripts: false         # notes and decisions only, unless you turn this on
+  lookback_days: 2
+
+people_profiles:
+  enabled: false
+
+sf_skills:
+  flow_generator: true             # Salesforce-hosted Flow generation; only ever against the build org
+  telemetry: false                 # the Salesforce plugin's usage telemetry
+  skills_first: enforce            # enforce | advisory | off (the plugin's own setting)
+
+tracker:
+  provider: atlassian              # atlassian | none; Orgtomo only reads tickets and never posts

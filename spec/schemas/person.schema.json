@@ -1,0 +1,17 @@
+{
+  "$id": "person", "title": "Work-communication profile of a colleague or client", "type": "object",
+  "required": ["name", "side"], "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "minLength": 2 },
+    "side": { "enum": ["internal", "client", "partner"] },
+    "role": { "type": "string" },
+    "company": { "type": "string" },
+    "salesforce_knowledge": { "enum": ["none", "basic", "admin", "developer", "architect"] },
+    "detail_level": { "enum": ["short", "medium", "detailed"] },
+    "prefers": { "type": "array", "items": { "type": "string", "minLength": 3 } },
+    "avoid": { "type": "array", "items": { "type": "string", "minLength": 3 } },
+    "language": { "type": "string" },
+    "channels": { "type": "array", "items": { "enum": ["tracker", "chat", "email"] } },
+    "aliases": { "type": "array", "items": { "type": "string" } }
+  }
+}

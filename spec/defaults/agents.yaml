@@ -1,0 +1,22 @@
+# One line per agent: which model, how much effort, on or off.
+# model:  sonnet | opus | haiku | fable | inherit | a full model id (claude-...)
+# effort: low | medium | high | xhigh | max
+# Change here, in the UI, or with /orgtomo:models. Then /orgtomo:sync.
+agents:
+  lead:         { model: sonnet, effort: medium, enabled: true, core: true }
+  analyst:      { model: opus,   effort: high,   enabled: true, core: true }
+  reproducer:   { model: opus,   effort: xhigh,  enabled: true, core: true }
+  planner:      { model: opus,   effort: xhigh,  enabled: true, core: true }
+  builder:      { model: opus,   effort: high,   enabled: true, core: true }
+  tester:       { model: sonnet, effort: medium, enabled: true, core: true }
+  reviewer:     { model: fable,  effort: high,   enabled: true, core: true }
+  cartographer: { model: sonnet, effort: medium, enabled: true, core: true }   # keeps the Org Brain; always on
+  baseline:     { model: sonnet, effort: low,    enabled: true }
+  scribe:       { model: sonnet, effort: low,    enabled: true }
+  coach:        { model: sonnet, effort: medium, enabled: true }
+  notetaker:    { model: sonnet, effort: low,    enabled: true }               # only runs when the meetings feature is on
+rules:
+  reviewer_differs_from_builder: true
+max_turns:
+  default: 60
+  lite: 25

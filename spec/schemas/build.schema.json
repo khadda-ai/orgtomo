@@ -1,0 +1,16 @@
+{
+  "$id": "build", "title": "Builder output", "type": "object",
+  "required": ["key", "components", "deviations", "deploy", "unit_tests_added", "claims"], "additionalProperties": false,
+  "properties": {
+    "key": { "$ref": "_defs#/$defs/ticketKey" },
+    "components": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["ref", "path", "change"], "additionalProperties": false,
+      "properties": { "ref": { "$ref": "_defs#/$defs/componentRef" }, "path": { "type": "string", "minLength": 3 }, "change": { "enum": ["new", "modify", "delete"] } } } },
+    "deviations": { "type": "array", "items": { "type": "object", "required": ["ref", "why"], "additionalProperties": false,
+      "properties": { "ref": { "$ref": "_defs#/$defs/componentRef" }, "why": { "type": "string", "minLength": 10 } } } },
+    "deploy": { "type": "object", "required": ["org", "evidence"], "additionalProperties": false,
+      "properties": { "org": { "type": "string" }, "evidence": { "type": "string", "pattern": "^E[0-9]{3,}$" } } },
+    "unit_tests_added": { "type": "array", "items": { "type": "string" } },
+    "notes": { "type": "string" },
+    "claims": { "$ref": "_defs#/$defs/claims" }
+  }
+}

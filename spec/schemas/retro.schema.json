@@ -1,0 +1,14 @@
+{
+  "$id": "retro", "title": "Coach output: evidence-backed lessons only", "type": "object",
+  "required": ["key", "went_well", "went_wrong", "lessons"], "additionalProperties": false,
+  "properties": {
+    "key": { "$ref": "_defs#/$defs/ticketKey" },
+    "went_well": { "type": "array", "items": { "type": "object", "required": ["text", "observations"], "additionalProperties": false,
+      "properties": { "text": { "type": "string" }, "observations": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^O-[0-9]+$" } } } } },
+    "went_wrong": { "type": "array", "items": { "type": "object", "required": ["text", "observations"], "additionalProperties": false,
+      "properties": { "text": { "type": "string" }, "observations": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^O-[0-9]+$" } } } } },
+    "lessons": { "type": "array", "items": { "type": "object", "required": ["agent", "type", "rule", "why", "observations"], "additionalProperties": false,
+      "properties": { "agent": { "type": "string" }, "type": { "enum": ["avoid", "keep"] }, "rule": { "type": "string", "minLength": 15 }, "why": { "type": "string", "minLength": 10 },
+        "observations": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^O-[0-9]+$" } } } } }
+  }
+}

@@ -1,0 +1,90 @@
+# Capability registry. Agents ask for a capability; this file says which tool
+# provides it. Swap a provider or add your own MCP server here, then run
+# /orgtomo:sync. Any MCP tool that is not listed under some capability is
+# denied to every agent.
+mcp_servers:
+  atlassian:  { type: http, url: "https://mcp.atlassian.com/v2/mcp" }
+  playwright: { command: npx, args: ["@playwright/mcp@latest"] }   # sync adds the profile, output dir and allowed origins
+  granola:    { type: http, url: "https://mcp.granola.ai/mcp", when: "meetings.provider == granola" }
+
+capabilities:
+  tracker.read:
+    provider: atlassian
+    tools:
+      - mcp__atlassian__getJiraIssue
+      - mcp__atlassian__searchJiraIssuesUsingJql
+      - mcp__atlassian__getAccessibleAtlassianResources
+      - mcp__atlassian__atlassianUserInfo
+  browser.ui:
+    provider: playwright
+    tools:
+      - mcp__playwright__browser_navigate
+      - mcp__playwright__browser_navigate_back
+      - mcp__playwright__browser_snapshot
+      - mcp__playwright__browser_click
+      - mcp__playwright__browser_type
+      - mcp__playwright__browser_fill_form
+      - mcp__playwright__browser_select_option
+      - mcp__playwright__browser_press_key
+      - mcp__playwright__browser_hover
+      - mcp__playwright__browser_wait_for
+      - mcp__playwright__browser_take_screenshot
+      - mcp__playwright__browser_tabs
+      - mcp__playwright__browser_console_messages
+      - mcp__playwright__browser_handle_dialog
+      - mcp__playwright__browser_close
+    never:                               # script execution inside the page is never granted
+      - mcp__playwright__browser_evaluate
+      - mcp__playwright__browser_run_code_unsafe
+      - mcp__playwright__browser_file_upload
+  meetings.read:
+    provider: granola
+    tools:
+      - mcp__granola__list_meetings
+      - mcp__granola__get_meetings
+      - mcp__granola__query_granola_meetings
+    transcript_tools:                    # granted only when features.meetings.store_transcripts is true
+      - mcp__granola__get_meeting_transcript
+  code.intel:
+    provider: sf-skills
+    tools:
+      - mcp__plugin_salesforce-development_salesforce-lsp__*
+      - mcp__plugin_salesforce-development_salesforce-metadata-grounding__*
+  flow.generate:
+    provider: sf-skills
+    feature: sf_skills.flow_generator
+    tools:
+      - mcp__plugin_salesforce-development_salesforce-metadata-experts__execute_metadata_action
+  docs.official:
+    provider: builtin
+    tools: [WebFetch, WebSearch]
+  # Built-in capabilities provided by the Orgtomo engine through Bash:
+  #   org.read  org.data  org.metadata  org.test  knowledge.vault  deploy.handoff  code.check
+
+# Which agent gets which capability and which built-in tools.
+grants:
+  lead:         { tools: [Read, Grep, Glob, Bash],              capabilities: [tracker.read] }
+  analyst:      { tools: [Read, Grep, Glob, Bash, Write, Edit], capabilities: [tracker.read, docs.official, code.intel] }
+  reproducer:   { tools: [Read, Grep, Glob, Bash, Write, Edit], capabilities: [browser.ui, code.intel] }
+  planner:      { tools: [Read, Grep, Glob, Bash, Write, Edit], capabilities: [docs.official, code.intel] }
+  builder:      { tools: [Read, Grep, Glob, Bash, Write, Edit], capabilities: [code.intel, flow.generate, docs.official] }
+  tester:       { tools: [Read, Grep, Glob, Bash, Write, Edit], capabilities: [browser.ui, code.intel] }
+  reviewer:     { tools: [Read, Grep, Glob, Bash, Write, Edit], capabilities: [docs.official, code.intel] }
+  cartographer: { tools: [Read, Grep, Glob, Bash, Write, Edit], capabilities: [code.intel] }
+  baseline:     { tools: [Read, Grep, Glob, Bash, Write],       capabilities: [] }
+  scribe:       { tools: [Read, Grep, Glob, Bash, Write],       capabilities: [] }
+  coach:        { tools: [Read, Grep, Glob, Bash, Write],       capabilities: [] }
+  notetaker:    { tools: [Read, Grep, Glob, Bash, Write],       capabilities: [meetings.read] }
+
+# Skills from forcedotcom/sf-skills each agent is pointed at (loaded on demand,
+# pinned by sf-skills.lock). Remove or add names freely.
+sf_skills:
+  analyst:      [platform-metadata-discovery-get, platform-soql-query, platform-capability-search]
+  reproducer:   [platform-soql-query, platform-apex-anonymous-run, platform-apex-logs-debug, platform-data-manage]
+  planner:      [platform-metadata-grounding-get, platform-metadata-api-context-get, platform-data-and-tooling-api-context-get, platform-capability-search]
+  builder:      [platform-apex-generate, platform-apex-test-generate, automation-flow-generate, platform-custom-field-generate, platform-custom-object-generate,
+                 platform-validation-rule-generate, platform-permission-set-generate, platform-flexipage-generate, platform-lsp-integrate, platform-manifest-generate]
+  tester:       [platform-apex-test-run, platform-apex-test-generate, platform-apex-logs-debug, platform-soql-query, platform-data-manage]
+  reviewer:     [dx-code-analyzer-run, platform-architecture-analyze]
+  cartographer: [platform-metadata-retrieve, platform-metadata-discovery-get]
+  baseline:     [platform-apex-test-run]

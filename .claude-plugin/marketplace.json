@@ -1,0 +1,39 @@
+{
+  "name": "orgtomo",
+  "owner": {
+    "name": "Khadda AI Labs"
+  },
+  "metadata": {
+    "description": "Orgtomo and the Salesforce plugins it builds on. forcedotcom/sf-skills changes often; the two Salesforce plugins are pinned to one commit so that agent behaviour changes only when a maintainer moves the pin (see sf-skills.lock).",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "orgtomo",
+      "description": "The Orgtomo team: commands, guards and the engine.",
+      "source": "./"
+    },
+    {
+      "name": "salesforce-development",
+      "description": "Salesforce skills, LSP and metadata tools from forcedotcom/sf-skills, pinned to commit 788b83fb (plugin 2.8.0).",
+      "version": "2.8.0",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/forcedotcom/sf-skills.git",
+        "path": "plugins/builder/salesforce-development",
+        "sha": "788b83fb9f5effb4f1548e3090df415704d3ec64"
+      }
+    },
+    {
+      "name": "salesforce-code-quality",
+      "description": "Code Analyzer skills and the architecture review agent from forcedotcom/sf-skills, pinned to commit 788b83fb (plugin 0.2.0).",
+      "version": "0.2.0",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/forcedotcom/sf-skills.git",
+        "path": "plugins/builder/salesforce-code-quality",
+        "sha": "788b83fb9f5effb4f1548e3090df415704d3ec64"
+      }
+    }
+  ]
+}
